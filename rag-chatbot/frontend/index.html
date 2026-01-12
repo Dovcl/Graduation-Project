@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>환경 데이터 RAG 챗봇 - 서울시립대학교</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 좌측 사이드바 -->
+        <aside class="sidebar" id="sidebar">
+            <!-- 사이드바 헤더 -->
+            <div class="sidebar-header">
+                <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="사이드바 토글">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <img src="assets/이루매캐릭터_46.png" alt="이루매" class="irumae-img">
+            </div>
+            
+            <!-- 사이드바 내용 -->
+            <div class="sidebar-content">
+                <button class="sidebar-btn new-chat-btn" id="newChatBtn" title="새 채팅">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                    <span class="sidebar-btn-text">새 채팅</span>
+                </button>
+                
+                <button class="sidebar-btn visualization-btn" id="visualizationBtn" title="시각화">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span class="sidebar-btn-text">시각화</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- 메인 콘텐츠 영역 -->
+        <div class="main-content">
+            <!-- 헤더 -->
+            <header class="header">
+                <div class="header-content">
+                    <!-- 좌측: 로고 -->
+                    <div class="header-left-group">
+                        <div class="header-logo">
+                            <img src="assets/uos-logo-white.png" alt="서울시립대학교" class="logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <div class="logo-placeholder" style="display: none;">UOS</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 가운데: 제목 -->
+                    <div class="header-center">
+                        <h1>환경 데이터 RAG 챗봇</h1>
+                    </div>
+                    
+                    <!-- 우측: (필요시 추가) -->
+                    <div class="header-right"></div>
+                </div>
+            </header>
+
+            <!-- 채팅 영역 -->
+            <main class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 초기 환영 메시지 -->
+                    <div class="message bot-message">
+                        <div class="message-content">
+                            무엇이 궁금한가요?
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 입력 영역 -->
+                <div class="chat-input-container">
+                    <button class="attach-btn" id="attachBtn" title="파일 첨부">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                        </svg>
+                    </button>
+                    <input 
+                        type="file" 
+                        id="fileInput" 
+                        accept=".xlsx,.xls,.csv" 
+                        style="display: none;"
+                    >
+                    <input 
+                        type="text" 
+                        id="userInput" 
+                        class="chat-input" 
+                        placeholder="메시지를 입력하세요..."
+                        autocomplete="off"
+                    >
+                    <button class="send-btn" id="sendBtn" title="전송">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 스크립트 -->
+    <script src="config.js"></script>
+    <script src="api/client.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
+
