@@ -6,3 +6,5 @@ All i want is to graduate successfully.
 
 ### 26_01_12
 프론트 디자인 재구성(학교 상징색으로 구성 + 좀 더 깔끔한 UI)
+fast api 환경 설정 + postgresql 다운 및 설정
+
