@@ -1,0 +1,28 @@
+# FastAPI 및 서버
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# 데이터베이스
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# 벡터 검색 (pgvector)
+pgvector==0.2.4
+
+# LLM 및 임베딩
+openai>=2.15.0
+groq==0.4.1
+sentence-transformers==2.2.2
+
+# 환경 변수 관리
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# 유틸리티
+httpx==0.25.1
+numpy==1.24.3
+pandas==2.1.3
+

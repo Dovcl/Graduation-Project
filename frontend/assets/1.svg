@@ -1,0 +1,44 @@
+<svg width="120" height="40" viewBox="0 0 120 40" xmlns="http://www.w3.org/2000/svg">
+  <!-- 서울시립대학교 로고 - 하얀색 버전 -->
+  <!-- 여러 개의 세로 막대들이 파도 모양으로 배열된 형태 -->
+  
+  <!-- 왼쪽 막대 (둥근 상단) -->
+  <rect x="2" y="4" width="8" height="28" rx="4" fill="white"/>
+  
+  <!-- 두 번째 막대 -->
+  <rect x="12" y="0" width="6" height="32" fill="white"/>
+  
+  <!-- 세 번째 막대 -->
+  <rect x="20" y="2" width="7" height="30" fill="white"/>
+  
+  <!-- 네 번째 막대 -->
+  <rect x="29" y="0" width="6" height="34" fill="white"/>
+  
+  <!-- 다섯 번째 막대 -->
+  <rect x="37" y="3" width="8" height="29" fill="white"/>
+  
+  <!-- 여섯 번째 막대 -->
+  <rect x="47" y="1" width="6" height="33" fill="white"/>
+  
+  <!-- 일곱 번째 막대 -->
+  <rect x="55" y="4" width="7" height="28" fill="white"/>
+  
+  <!-- 여덟 번째 막대 -->
+  <rect x="64" y="0" width="6" height="32" fill="white"/>
+  
+  <!-- 아홉 번째 막대 -->
+  <rect x="72" y="2" width="8" height="30" fill="white"/>
+  
+  <!-- 열 번째 막대 -->
+  <rect x="82" y="1" width="6" height="33" fill="white"/>
+  
+  <!-- 열한 번째 막대 -->
+  <rect x="90" y="3" width="7" height="29" fill="white"/>
+  
+  <!-- 열두 번째 막대 -->
+  <rect x="99" y="0" width="6" height="34" fill="white"/>
+  
+  <!-- 열세 번째 막대 (오른쪽 끝) -->
+  <rect x="107" y="2" width="8" height="30" fill="white"/>
+</svg>
+

@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# 환경 변수 (중요!)
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 임시 파일
+*.tmp
+*.temp
+
+# API 키 파일
+*api*key*
+*secret*
+
+# 백엔드 특정
+backend/venv/
+backend/__pycache__/
+backend/.pytest_cache/
+backend/.mypy_cache/
+
+# 프론트엔드 특정
+frontend/node_modules/
+frontend/.cache/
+
+# Docker
+.dockerignore
+
+# 기타
+*.rtf
+*.bak
+
+# Markdown 파일 제외
+*.md
+
