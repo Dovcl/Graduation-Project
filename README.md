@@ -90,4 +90,13 @@ fast api 환경 설정 + postgresql 다운 및 설정
 - `created_at`, `updated_at`: 타임스탬프
 
 
+### 26_01_15
+가지고 있는 데이터 특성 파악
+ipynb파일 파악 + 사용한 best.pth 외에 즉각적인 예측을 위한 변수 규격들 뽑아내 추가적으로 Backend/models에 추가해줌.
+데이터베이스에 모델학습에 사용된 데이터 녹조변수 5개(유해남조류 세포수, Microcystis, Anabaena, Oscillatoria, Aphanizomenon), 수질 변수 4개(수온, DO, TN, TP) 업로드하여 모델 예측에 필요한 데이터 준비. + 답변 유연성 조정
+#### 결과 : 지엽적인 질문도 대답한다
+chat_service에 model 연동
+
+
+
 
