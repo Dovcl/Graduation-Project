@@ -10,6 +10,13 @@ fast api 환경 설정 + postgresql 다운 및 설정
 
 ### 26_01_14
 
+### 26_01_15
+- 좌표 기반 위치 조회 기능 추가: (위도, 경도) 형식으로 위치 검색 가능
+- 모든 모델 학습 변수(9개) 데이터 로딩 지원: cyanohab_final.csv(5개) + WQ_TOTAL.csv(4개)
+- WQ_TOTAL.csv와 수질좌표_2025.csv 매핑 개선: model_config.json 기반 자동 매핑
+- PredictionService 및 TimeSeriesTransformer 모델 통합
+- 환경 데이터 초기화 및 로딩 스크립트 추가
+
 ### 아키텍처 패턴
 
 #### 1. Service Layer Pattern (서비스 레이어 패턴)
