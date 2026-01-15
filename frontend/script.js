@@ -93,6 +93,11 @@ async function handleSendMessage() {
     const loadingId = addLoadingMessage();
 
     try {
+        // API 클라이언트 확인
+        if (!window.apiClient) {
+            throw new Error('API 클라이언트가 초기화되지 않았습니다. 페이지를 새로고침해주세요.');
+        }
+        
         // 백엔드 API 호출
         const response = await window.apiClient.chat(message, conversationHistory);
 
@@ -126,6 +131,10 @@ async function handleFileUpload(file) {
     addMessage('bot', `📁 ${file.name} 파일을 업로드하는 중...`);
 
     try {
+        if (!window.apiClient) {
+            throw new Error('API 클라이언트가 초기화되지 않았습니다.');
+        }
+        
         const response = await window.apiClient.uploadFile(file);
         addMessage('bot', `✅ 파일이 성공적으로 업로드되었습니다. (${response.rows_imported || 0}개 데이터)`);
     } catch (error) {

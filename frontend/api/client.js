@@ -13,7 +13,8 @@ class APIClient {
      */
     async chat(message, history = []) {
         try {
-            const response = await fetch(`${this.baseURL}${window.CONFIG.API_ENDPOINTS.CHAT}`, {
+            const endpoint = window.CONFIG?.API_ENDPOINTS?.CHAT || '/api/chat';
+            const response = await fetch(`${this.baseURL}${endpoint}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -45,7 +46,8 @@ class APIClient {
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await fetch(`${this.baseURL}${window.CONFIG.API_ENDPOINTS.UPLOAD}`, {
+            const endpoint = window.CONFIG?.API_ENDPOINTS?.UPLOAD || '/api/upload';
+            const response = await fetch(`${this.baseURL}${endpoint}`, {
                 method: 'POST',
                 body: formData
             });
@@ -62,9 +64,12 @@ class APIClient {
     }
 }
 
-// 싱글톤 인스턴스
-const apiClient = new APIClient();
-window.apiClient = apiClient;
-
-export default apiClient;
+// 싱글톤 인스턴스 생성 및 전역 등록
+(function() {
+    const apiClient = new APIClient();
+    window.apiClient = apiClient;
+    
+    // 초기화 확인 로그
+    console.log('API 클라이언트 초기화 완료:', apiClient.baseURL);
+})();
 
