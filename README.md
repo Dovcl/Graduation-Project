@@ -29,7 +29,7 @@ fast api 환경 설정 + postgresql 다운 및 설정
 - **구성**: SQLAlchemy ORM으로 `Document`, `EnvironmentalData` 모델 사용
 
 
-## 🛠️ 기술 스택
+## 기술 스택
 
 ### Backend
 - **Python** 3.10.19
@@ -64,7 +64,7 @@ fast api 환경 설정 + postgresql 다운 및 설정
 
 ---
 
-## 💾 데이터베이스 설계
+## 데이터베이스 설계
 
 ### 주요 테이블
 
