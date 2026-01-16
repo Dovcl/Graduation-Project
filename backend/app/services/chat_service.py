@@ -11,7 +11,7 @@ from app.services.rag_service import RAGService
 from app.services.rag_service_langchain import RAGServiceLangChain
 from app.services.data_service import DataService
 from app.services.prediction_service import PredictionService
-from app.database import get_db
+from app.database import SessionLocal
 
 
 class ChatService:
@@ -41,9 +41,9 @@ class ChatService:
         6. LLM 호출
         7. 응답 포맷팅
         """
-        # DB 세션 생성
-        db = next(get_db())
-        
+        # DB 세션 생성 (컨텍스트 매니저 패턴)
+        db = SessionLocal()
+
         try:
             # 1. 예측 요청 감지
             prediction_info = self._detect_prediction_request(message)

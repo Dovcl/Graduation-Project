@@ -2,7 +2,7 @@
 LLM 서비스 - OpenAI API 호출
 """
 from typing import List
-from openai import OpenAI
+from openai import AsyncOpenAI
 from app.core.config import settings
 from app.schemas.chat import Message
 
@@ -16,11 +16,11 @@ class LLMService:
         self.client = None
     
     def _get_client(self):
-        """클라이언트 지연 초기화"""
+        """클라이언트 지연 초기화 (비동기)"""
         if self.client is None:
             if not self.api_key or self.api_key == "your_openai_api_key_here" or not self.api_key.startswith("sk-"):
                 raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = AsyncOpenAI(api_key=self.api_key)
         return self.client
     
     async def generate_answer(
@@ -72,16 +72,16 @@ class LLMService:
         })
         
         try:
-            # OpenAI API 호출
+            # OpenAI API 비동기 호출
             client = self._get_client()
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_completion_tokens=128000  # 모델 최대 출력 토큰 (128000)
+                max_tokens=4096  # 적절한 응답 길이
             )
-            
+
             return response.choices[0].message.content
-        
+
         except Exception as e:
             return f"오류가 발생했습니다: {str(e)}"
 

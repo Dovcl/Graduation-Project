@@ -6,11 +6,12 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from sqlalchemy.orm import Session
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import ExcelLoader, TextLoader, CSVLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import TextLoader, CSVLoader
 from langchain_community.vectorstores import PGVector
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document as LangChainDocument
+import pandas as pd
 
 from app.database import get_db
 from app.core.config import settings
@@ -31,7 +32,7 @@ class RAGServiceLangChain:
         self.embeddings = HuggingFaceEmbeddings(
             model_name=settings.EMBEDDING_MODEL,
             model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': False}
+            encode_kwargs={'normalize_embeddings': True}  # 코사인 유사도 사용 시 정규화 권장
         )
         
         # 벡터 스토어 연결 문자열
@@ -53,21 +54,43 @@ class RAGServiceLangChain:
             Document 리스트
         """
         try:
-            loader = ExcelLoader(
-                file_path=file_path,
-                sheet_name=sheet_name,
-                mode="elements"  # 각 행을 별도 Document로
-            )
-            documents = loader.load()
+            documents = []
             
-            # 메타데이터 추가
-            for doc in documents:
-                doc.metadata["source"] = file_path
-                doc.metadata["doc_type"] = "excel"
+            # pandas로 엑셀 읽기
+            if sheet_name:
+                # 특정 시트만 읽기
+                df = pd.read_excel(file_path, sheet_name=sheet_name)
+                content = f"시트: {sheet_name}\n\n{df.to_string()}"
+                doc = LangChainDocument(
+                    page_content=content,
+                    metadata={
+                        "source": file_path,
+                        "doc_type": "excel",
+                        "sheet_name": sheet_name
+                    }
+                )
+                documents.append(doc)
+            else:
+                # 모든 시트 읽기
+                excel_file = pd.ExcelFile(file_path)
+                for sheet in excel_file.sheet_names:
+                    df = pd.read_excel(file_path, sheet_name=sheet)
+                    content = f"시트: {sheet}\n\n{df.to_string()}"
+                    doc = LangChainDocument(
+                        page_content=content,
+                        metadata={
+                            "source": file_path,
+                            "doc_type": "excel",
+                            "sheet_name": sheet
+                        }
+                    )
+                    documents.append(doc)
             
             return documents
         except Exception as e:
             print(f"엑셀 파일 로드 오류: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def load_text_file(self, file_path: str) -> List[LangChainDocument]:
@@ -166,13 +189,16 @@ class RAGServiceLangChain:
             # 결과 포맷팅 (기존 RAGService 형식과 호환)
             documents = []
             for doc, score in docs_with_scores:
+                # PGVector는 L2 거리를 반환하므로, 유사도로 변환
+                # 거리가 작을수록 유사도가 높음: similarity = 1 / (1 + distance)
+                similarity = 1.0 / (1.0 + float(score))
                 documents.append({
                     "id": None,  # LangChain은 ID를 직접 제공하지 않음
                     "title": doc.metadata.get("title", doc.metadata.get("source", "제목 없음")),
                     "content": doc.page_content[:500],  # 처음 500자만
                     "source": doc.metadata.get("source", "알 수 없음"),
                     "doc_type": doc.metadata.get("doc_type", "unknown"),
-                    "similarity": float(1 - score) if score <= 1 else 0.0  # 거리를 유사도로 변환
+                    "similarity": similarity
                 })
             
             return documents
