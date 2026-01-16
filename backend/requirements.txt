@@ -16,6 +16,12 @@ openai>=2.15.0
 groq==0.4.1
 sentence-transformers==2.2.2
 
+# LangChain (RAG 강화)
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-postgres>=0.0.3
+openpyxl>=3.1.2  # 엑셀 파일 읽기용
+
 # 환경 변수 관리
 python-dotenv==1.0.0
 pydantic==2.5.0

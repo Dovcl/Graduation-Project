@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from app.schemas.chat import ChatResponse, Message
 from app.services.llm_service import LLMService
 from app.services.rag_service import RAGService
+from app.services.rag_service_langchain import RAGServiceLangChain
 from app.services.data_service import DataService
 from app.services.prediction_service import PredictionService
 from app.database import get_db
@@ -18,7 +19,8 @@ class ChatService:
     
     def __init__(self):
         self.llm_service = LLMService()
-        self.rag_service = RAGService()
+        self.rag_service = RAGService()  # 기존 RAG (호환성 유지)
+        self.rag_service_langchain = RAGServiceLangChain()  # LangChain RAG
         self.data_service = DataService()
         self.prediction_service = PredictionService()
     
@@ -46,10 +48,16 @@ class ChatService:
             # 1. 예측 요청 감지
             prediction_info = self._detect_prediction_request(message)
             
-            # 2. RAG 검색
-            rag_docs = await self.rag_service.search(message, top_k=3, db=db)
+            # 2. RAG 검색 (하이브리드: LangChain + 기존)
+            rag_docs_langchain = await self.rag_service_langchain.search(
+                message, top_k=3, db=db
+            )
+            rag_docs_legacy = await self.rag_service.search(message, top_k=3, db=db)
             
-            # 3. 데이터 조회
+            # 두 결과 병합 (LangChain 우선)
+            rag_docs = rag_docs_langchain if rag_docs_langchain else rag_docs_legacy
+            
+            # 3. 데이터 조회 (SQL 기반 수치 데이터)
             env_data = await self.data_service.query(message, db=db)
             
             # 4. 예측 수행 (필요시)
