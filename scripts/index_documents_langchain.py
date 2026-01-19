@@ -7,8 +7,16 @@ import sys
 import os
 from pathlib import Path
 
+# .env 파일 로드 (스크립트 실행 시 환경 변수 로드)
+from dotenv import load_dotenv
+backend_dir = os.path.join(os.path.dirname(__file__), '..', 'backend')
+env_path = os.path.join(backend_dir, '.env')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+    print(f"✓ .env 파일 로드: {env_path}")
+
 # 프로젝트 루트를 Python 경로에 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+sys.path.insert(0, backend_dir)
 
 from app.database import SessionLocal, init_db
 from app.services.rag_service_langchain import RAGServiceLangChain
@@ -28,6 +36,43 @@ def index_excel_file(file_path: str, collection_name: str = "documents"):
     try:
         # 엑셀 파일 로드
         documents = rag_service.load_excel_file(file_path)
+        print(f"✓ 로드된 문서: {len(documents)}개")
+        
+        if not documents:
+            print("⚠ 문서가 없습니다.")
+            return False
+        
+        # 인덱싱
+        print(f"청킹 및 벡터화 중...")
+        vectorstore = rag_service.index_documents(
+            documents, 
+            collection_name=collection_name
+        )
+        
+        print(f"✓ 인덱싱 완료: {collection_name}")
+        return True
+    
+    except Exception as e:
+        print(f"✗ 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def index_pdf_file(file_path: str, collection_name: str = "documents"):
+    """PDF 파일 인덱싱 (표 포함)"""
+    print(f"\n[PDF 파일 인덱싱]")
+    print(f"파일: {file_path}")
+    
+    if not Path(file_path).exists():
+        print(f"✗ 파일을 찾을 수 없습니다: {file_path}")
+        return False
+    
+    rag_service = RAGServiceLangChain()
+    
+    try:
+        # PDF 파일 로드 (표 포함)
+        documents = rag_service.load_pdf_file(file_path, extract_tables=True)
         print(f"✓ 로드된 문서: {len(documents)}개")
         
         if not documents:
@@ -192,6 +237,11 @@ def main():
         help="인덱싱할 텍스트 파일 경로"
     )
     parser.add_argument(
+        "--pdf",
+        type=str,
+        help="인덱싱할 PDF 파일 경로"
+    )
+    parser.add_argument(
         "--manual",
         action="store_true",
         help="예시 매뉴얼 문서 인덱싱"
@@ -224,12 +274,16 @@ def main():
     if args.text:
         success = index_text_file(args.text, args.collection) or success
     
+    # PDF 파일 인덱싱
+    if args.pdf:
+        success = index_pdf_file(args.pdf, args.collection) or success
+    
     # 예시 매뉴얼 인덱싱
     if args.manual:
         success = index_manual_documents(args.collection) or success
     
     # 아무것도 지정하지 않으면 예시 매뉴얼 인덱싱
-    if not args.excel and not args.text and not args.manual:
+    if not args.excel and not args.text and not args.pdf and not args.manual:
         print("\n⚠ 인덱싱할 파일이 지정되지 않았습니다.")
         print("예시 매뉴얼 문서를 인덱싱합니다...")
         success = index_manual_documents(args.collection)

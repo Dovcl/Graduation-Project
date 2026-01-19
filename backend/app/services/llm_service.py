@@ -47,7 +47,12 @@ class LLMService:
         system_prompt = """당신은 환경 데이터 분석 전문가입니다. 수질, 녹조, 수문, 기상 데이터에 대해 정확하고 도움이 되는 답변을 제공하세요.
 
 제공된 컨텍스트 정보를 활용하여 답변하되, 컨텍스트에 없는 내용은 추측하지 마세요.
-답변은 한국어로 작성하고, 구체적인 수치와 출처를 명시하세요."""
+답변은 한국어로 작성하고, 구체적인 수치와 출처를 명시하세요.
+
+[중요] 예측 결과가 높은 수준으로 나타날 경우:
+- 예측 결과를 명확히 설명한 후
+- "녹조가 높을 때 대응 방법을 알려드릴까요?" 또는 "가이드라인을 설명해드릴까요?"라고 자연스럽게 제안하세요.
+- 사용자가 동의하면 제공된 가이드라인 문서를 바탕으로 구체적인 대응 방법을 설명하세요."""
         
         if context:
             system_prompt += f"\n\n=== 참고 정보 ===\n{context}"
@@ -77,7 +82,7 @@ class LLMService:
             response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=4096  # 적절한 응답 길이
+                max_completion_tokens=4096  # 적절한 응답 길이 (gpt-5-mini는 max_completion_tokens 사용)
             )
 
             return response.choices[0].message.content

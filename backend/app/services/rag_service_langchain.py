@@ -12,6 +12,9 @@ from langchain_community.vectorstores import PGVector
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document as LangChainDocument
 import pandas as pd
+import pdfplumber
+import json
+import html
 
 from app.database import get_db
 from app.core.config import settings
@@ -105,6 +108,104 @@ class RAGServiceLangChain:
         except Exception as e:
             print(f"텍스트 파일 로드 오류: {e}")
             return []
+    
+    def load_pdf_file(
+        self,
+        file_path: str,
+        extract_tables: bool = True
+    ) -> List[LangChainDocument]:
+        """
+        PDF 파일을 로드하여 Document 리스트로 변환
+        스크린샷의 최적화 방법 적용:
+        1. 텍스트 부분은 Markdown 변환
+        2. 표는 HTML/JSON으로 저장 + 메타데이터 추가
+        
+        Args:
+            file_path: PDF 파일 경로
+            extract_tables: 표 추출 여부
+        
+        Returns:
+            Document 리스트 (텍스트 + 표)
+        """
+        try:
+            documents = []
+            
+            with pdfplumber.open(file_path) as pdf:
+                print(f"PDF 로드: {len(pdf.pages)}페이지")
+                
+                for page_num, page in enumerate(pdf.pages, 1):
+                    # 1. 텍스트 추출 (Markdown 변환)
+                    text = page.extract_text()
+                    if text and text.strip():
+                        # 텍스트를 Document로 저장
+                        doc = LangChainDocument(
+                            page_content=text,
+                            metadata={
+                                "source": file_path,
+                                "doc_type": "pdf_text",
+                                "page_number": page_num,
+                                "content_type": "text"
+                            }
+                        )
+                        documents.append(doc)
+                    
+                    # 2. 표 추출 (HTML/JSON 변환)
+                    if extract_tables:
+                        tables = page.extract_tables()
+                        for table_num, table in enumerate(tables, 1):
+                            if table and len(table) > 0:
+                                # 표를 HTML로 변환
+                                html_table = self._table_to_html(table)
+                                
+                                # 표를 JSON으로도 변환
+                                json_table = json.dumps(table, ensure_ascii=False, indent=2)
+                                
+                                # HTML 표를 Document로 저장
+                                table_content = f"표 {table_num} (페이지 {page_num}):\n\n{html_table}\n\nJSON 형식:\n{json_table}"
+                                
+                                doc = LangChainDocument(
+                                    page_content=table_content,
+                                    metadata={
+                                        "source": file_path,
+                                        "doc_type": "pdf_table",
+                                        "page_number": page_num,
+                                        "table_number": table_num,
+                                        "content_type": "table",
+                                        "table_html": html_table,
+                                        "table_json": json_table,
+                                        "table_rows": len(table),
+                                        "table_cols": len(table[0]) if table else 0
+                                    }
+                                )
+                                documents.append(doc)
+                                
+                                print(f"  페이지 {page_num}: 표 {table_num} 추출 ({len(table)}행)")
+            
+            print(f"✓ PDF 로드 완료: 텍스트 {len([d for d in documents if d.metadata.get('content_type') == 'text'])}개, 표 {len([d for d in documents if d.metadata.get('content_type') == 'table'])}개")
+            return documents
+        
+        except Exception as e:
+            print(f"PDF 파일 로드 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def _table_to_html(self, table: List[List[str]]) -> str:
+        """표를 HTML 형식으로 변환"""
+        if not table or len(table) == 0:
+            return ""
+        
+        html_rows = []
+        for i, row in enumerate(table):
+            cells = []
+            for cell in row:
+                cell_text = str(cell) if cell is not None else ""
+                cell_text = html.escape(cell_text)
+                tag = "th" if i == 0 else "td"  # 첫 행은 헤더
+                cells.append(f"<{tag}>{cell_text}</{tag}>")
+            html_rows.append(f"<tr>{''.join(cells)}</tr>")
+        
+        return f"<table>{''.join(html_rows)}</table>"
     
     def chunk_documents(
         self, 

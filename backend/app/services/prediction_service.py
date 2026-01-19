@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
@@ -107,83 +107,248 @@ class PredictionService:
         location: str,
         target_date: datetime,
         db: Session
-    ) -> Optional[Tuple[np.ndarray, str, str]]:
+    ) -> Optional[Tuple[np.ndarray, str, str, Dict[str, Any]]]:
         """
         예측을 위한 입력 시퀀스 준비
-        
+
         Args:
             location: 위치명
             target_date: 예측할 날짜
             db: 데이터베이스 세션
-        
+
         Returns:
-            (X_time_series, temporal_context, spatial_context) 또는 None
+            (X_time_series, temporal_context, spatial_context, metadata) 또는 None
+            metadata: 사용된 데이터 범위 정보
         """
         seq_len = self.config['model_hyperparameters']['seq_len']
         feature_order = self.config['features']['feature_order']
         cyano_vars = self.config['features']['cyano_vars']
         wq_vars = self.config['features']['wq_vars']
         
-        # 과거 7주 데이터 조회 (t-6 ~ t)
-        # 각 주의 데이터를 조회하여 시퀀스 구성
-        X_time_series = []
+        # 데이터베이스의 날짜 범위 조회
+        from sqlalchemy import func
+        date_range = db.query(
+            func.min(EnvironmentalData.date).label('min_date'),
+            func.max(EnvironmentalData.date).label('max_date')
+        ).filter(
+            EnvironmentalData.location.contains(location)
+        ).first()
         
-        for week_offset in range(seq_len, 0, -1):  # t-6, t-5, ..., t-1, t
-            week_start = target_date - timedelta(weeks=week_offset)
-            week_end = target_date - timedelta(weeks=week_offset-1)
-            
-            # 해당 주의 데이터 조회
-            query = db.query(EnvironmentalData).filter(
-                EnvironmentalData.location.contains(location),
-                EnvironmentalData.date >= week_start.date(),
-                EnvironmentalData.date < week_end.date()
+        db_min_date = date_range.min_date if date_range else None
+        db_max_date = date_range.max_date if date_range else None
+
+        # 먼저 target_date 기준으로 과거 7주 데이터 시도
+        result = self._try_get_sequence_data(
+            location, target_date, seq_len, feature_order, db
+        )
+        
+        used_base_date = target_date
+        data_source = "target_date"
+
+        # 데이터가 없으면 해당 위치의 가장 최근 7주 데이터 사용
+        if result is None:
+            print(f"⚠ {target_date.date()} 기준 과거 7주 데이터 없음. 최근 데이터로 대체합니다.")
+            result = self._get_latest_sequence_data(
+                location, seq_len, feature_order, db
             )
             
-            week_data = query.all()
+            if result is None:
+                return None  # 해당 위치의 데이터가 전혀 없음
             
-            if not week_data:
-                return None  # 해당 주의 데이터가 없음
+            # 최근 데이터 날짜 찾기
+            latest_date_query = db.query(func.max(EnvironmentalData.date)).filter(
+                EnvironmentalData.location.contains(location)
+            ).scalar()
             
-            # 주간 평균 계산 (data_type별로)
-            week_values = {}
-            
-            # cyano_vars와 wq_vars를 data_type으로 매핑
-            # 실제 데이터베이스 구조에 맞게 조정 필요
-            for var in feature_order:
-                # data_type으로 필터링하여 값 추출
-                # 실제 구현은 데이터베이스 스키마에 맞게 조정 필요
-                values = []
-                for d in week_data:
-                    # data_type이 var와 일치하는 경우
-                    if hasattr(d, 'data_type') and d.data_type == var:
-                        if d.value is not None:
-                            values.append(d.value)
-                
-                week_values[var] = np.mean(values) if values else 0.0
-            
-            # Feature 순서대로 값 추출
-            feature_values = [week_values.get(var, 0.0) for var in feature_order]
-            X_time_series.append(feature_values)
+            if latest_date_query:
+                if isinstance(latest_date_query, datetime):
+                    used_base_date = latest_date_query
+                else:
+                    used_base_date = datetime.combine(latest_date_query, datetime.min.time())
+                data_source = "latest_available"
         
+        X_time_series, data_date_range = result
+
+        # numpy 배열로 변환
         X_time_series = np.array(X_time_series, dtype=np.float32)  # (seq_len, num_features)
-        
+
         # log1p 적용 (전처리 설정에 따라)
         if self.config['preprocessing']['log1p_applied']:
             X_time_series = np.log1p(X_time_series)
-        
+
         # Scaler 적용
         X_time_series_reshaped = X_time_series.reshape(-1, len(feature_order))
         X_time_series_scaled = self.scaler.transform(X_time_series_reshaped).reshape(seq_len, len(feature_order))
-        
-        # Temporal context (마지막 주차)
-        last_week_date = target_date - timedelta(weeks=1)
-        temporal_context = self._get_week_of_year(last_week_date)
-        
+
+        # Temporal context (target_date의 주차 사용)
+        temporal_context = self._get_week_of_year(target_date)
+
         # Spatial context
         spatial_context = location
         
-        return X_time_series_scaled, temporal_context, spatial_context
-    
+        # 메타데이터 구성
+        metadata = {
+            "db_date_range": {
+                "min": db_min_date.isoformat() if db_min_date else None,
+                "max": db_max_date.isoformat() if db_max_date else None
+            },
+            "used_base_date": used_base_date.isoformat(),
+            "data_source": data_source,  # "target_date" or "latest_available"
+            "data_date_range": data_date_range  # 실제 사용된 데이터의 날짜 범위
+        }
+
+        return X_time_series_scaled, temporal_context, spatial_context, metadata
+
+    def _try_get_sequence_data(
+        self,
+        location: str,
+        target_date: datetime,
+        seq_len: int,
+        feature_order: List[str],
+        db: Session
+    ) -> Optional[Tuple[List[List[float]], Dict[str, str]]]:
+        """target_date 기준 과거 7주 데이터 조회 시도"""
+        X_time_series = []
+        min_date = None
+        max_date = None
+
+        for week_offset in range(seq_len, 0, -1):
+            week_start = target_date - timedelta(weeks=week_offset)
+            week_end = target_date - timedelta(weeks=week_offset-1)
+
+            query = db.query(EnvironmentalData).filter(
+                EnvironmentalData.location.contains(location),
+                EnvironmentalData.date >= week_start.date(),
+                EnvironmentalData.date <= (week_end - timedelta(days=1)).date()
+            )
+
+            week_data = query.all()
+
+            if not week_data:
+                return None  # 해당 기간 데이터 없음
+            
+            # 날짜 범위 업데이트
+            for d in week_data:
+                if d.date:
+                    if min_date is None or d.date < min_date:
+                        min_date = d.date
+                    if max_date is None or d.date > max_date:
+                        max_date = d.date
+
+            # 주간 평균 계산
+            week_values = self._calculate_week_values(week_data, feature_order)
+            feature_values = [week_values.get(var, 0.0) for var in feature_order]
+            X_time_series.append(feature_values)
+
+        data_date_range = {
+            "min": min_date.isoformat() if min_date else None,
+            "max": max_date.isoformat() if max_date else None
+        }
+        
+        return X_time_series, data_date_range
+
+    def _get_latest_sequence_data(
+        self,
+        location: str,
+        seq_len: int,
+        feature_order: List[str],
+        db: Session
+    ) -> Optional[Tuple[List[List[float]], Dict[str, str]]]:
+        """해당 위치의 가장 최근 7주 데이터 조회"""
+        from sqlalchemy import func
+
+        # 해당 위치의 가장 최근 날짜 찾기
+        latest_date_query = db.query(func.max(EnvironmentalData.date)).filter(
+            EnvironmentalData.location.contains(location)
+        ).scalar()
+
+        if not latest_date_query:
+            return None  # 해당 위치 데이터 없음
+
+        # datetime으로 변환
+        if isinstance(latest_date_query, datetime):
+            latest_date = latest_date_query
+        else:
+            latest_date = datetime.combine(latest_date_query, datetime.min.time())
+
+        print(f"ℹ {location} 위치의 최근 데이터 날짜: {latest_date.date()}")
+
+        X_time_series = []
+        min_date = None
+        max_date = None
+
+        # 최근 날짜 기준으로 과거 7주 데이터 조회
+        for week_offset in range(seq_len, 0, -1):
+            week_start = latest_date - timedelta(weeks=week_offset)
+            week_end = latest_date - timedelta(weeks=week_offset-1)
+
+            query = db.query(EnvironmentalData).filter(
+                EnvironmentalData.location.contains(location),
+                EnvironmentalData.date >= week_start.date(),
+                EnvironmentalData.date <= (week_end - timedelta(days=1)).date()
+            )
+
+            week_data = query.all()
+
+            # 데이터가 없으면 주 범위 확장
+            if not week_data:
+                extended_start = week_start - timedelta(weeks=2)
+                extended_query = db.query(EnvironmentalData).filter(
+                    EnvironmentalData.location.contains(location),
+                    EnvironmentalData.date >= extended_start.date(),
+                    EnvironmentalData.date < week_end.date()
+                ).order_by(EnvironmentalData.date.desc()).limit(50)
+
+                week_data = extended_query.all()
+
+                if not week_data:
+                    # 해당 주 데이터 없으면 0으로 채움 (최소한의 fallback)
+                    feature_values = [0.0] * len(feature_order)
+                    X_time_series.append(feature_values)
+                    continue
+            
+            # 날짜 범위 업데이트
+            for d in week_data:
+                if d.date:
+                    if min_date is None or d.date < min_date:
+                        min_date = d.date
+                    if max_date is None or d.date > max_date:
+                        max_date = d.date
+
+            # 주간 평균 계산
+            week_values = self._calculate_week_values(week_data, feature_order)
+            feature_values = [week_values.get(var, 0.0) for var in feature_order]
+            X_time_series.append(feature_values)
+
+        if not X_time_series:
+            return None
+        
+        data_date_range = {
+            "min": min_date.isoformat() if min_date else None,
+            "max": max_date.isoformat() if max_date else None
+        }
+        
+        return X_time_series, data_date_range
+
+    def _calculate_week_values(
+        self,
+        week_data: List,
+        feature_order: List[str]
+    ) -> Dict[str, float]:
+        """주간 데이터에서 각 변수의 평균값 계산"""
+        week_values = {}
+
+        for var in feature_order:
+            values = []
+            for d in week_data:
+                if hasattr(d, 'data_type') and d.data_type == var:
+                    if d.value is not None:
+                        values.append(d.value)
+
+            week_values[var] = np.mean(values) if values else 0.0
+
+        return week_values
+
     async def predict(
         self,
         location: str,
@@ -222,7 +387,7 @@ class PredictionService:
                     "target_date": target_date.isoformat()
                 }
             
-            X_time_series, temporal_context, spatial_context = input_data
+            X_time_series, temporal_context, spatial_context, data_metadata = input_data
             
             # Encoder로 변환
             try:
@@ -264,7 +429,13 @@ class PredictionService:
                 "metadata": {
                     "model": "TimeSeriesTransformer",
                     "seq_len": self.config['model_hyperparameters']['seq_len'],
-                    "log1p_applied": self.config['preprocessing']['log1p_applied']
+                    "log1p_applied": self.config['preprocessing']['log1p_applied'],
+                    "data_info": {
+                        "db_date_range": data_metadata.get("db_date_range"),
+                        "used_base_date": data_metadata.get("used_base_date"),
+                        "data_source": data_metadata.get("data_source"),
+                        "data_date_range": data_metadata.get("data_date_range")
+                    }
                 }
             }
             

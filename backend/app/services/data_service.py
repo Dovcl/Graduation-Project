@@ -50,8 +50,10 @@ class DataService:
             
             mapping = {
                 '수질': 'water_quality', # 일반적인 카테고리
-                '녹조': 'algae',
-                '조류': 'algae',
+                '녹조': '유해남조류 세포수 (cells/㎖)',  # 변경: 'algae' 대신 실제 DB 컬럼명 사용
+                '조류': '유해남조류 세포수 (cells/㎖)',  # 변경: 'algae' 대신 실제 DB 컬럼명 사용
+                '녹조 농도': '유해남조류 세포수 (cells/㎖)',  # 추가
+                '조류 농도': '유해남조류 세포수 (cells/㎖)',  # 추가
                 '수문': 'hydrology',
                 '기상': 'weather',
                 '온도': '수온(℃)',
