@@ -87,6 +87,21 @@ class ChatService:
             # 5. 컨텍스트 구성
             context = self._build_context(rag_docs, env_data, prediction_result)
             
+            # 실제 데이터베이스에 있는 위치 목록을 컨텍스트에 추가
+            available_locations = self._get_available_locations(db)
+            if available_locations:
+                context += f"\n\n=== [절대 규칙] 사용 가능한 위치 목록 ===\n"
+                context += "⚠️ 중요: 예측이나 데이터 조회를 위한 위치명을 제시하거나 추천할 때는, 반드시 아래 목록에 있는 위치만 사용하세요.\n"
+                context += "⚠️ 이 목록에 없는 위치명(예: '한강 팔당댐', '낙동강 달성' 등)은 데이터베이스에 등록되지 않아 예측이나 조회가 불가능합니다.\n"
+                context += "⚠️ 위치 추천을 요청받았을 때는 반드시 아래 목록에서만 선택하여 추천하세요.\n\n"
+                context += f"등록된 위치 목록 (총 {len(available_locations)}개):\n"
+                # 위치를 더 읽기 쉽게 표시 (10개씩 줄바꿈)
+                for i in range(0, min(30, len(available_locations)), 10):
+                    batch = available_locations[i:i+10]
+                    context += "  - " + ", ".join(batch) + "\n"
+                if len(available_locations) > 30:
+                    context += f"  ... 외 {len(available_locations) - 30}개\n"
+            
             # 6. LLM 호출 (컨텍스트 포함)
             answer = await self.llm_service.generate_answer(
                 message=message,
@@ -200,22 +215,49 @@ class ChatService:
         location = None
         location_keywords = self._load_location_keywords()
         
-        # 긴 위치명부터 매칭 (예: "강정고령보"가 "강정"보다 우선)
-        sorted_keywords = sorted(location_keywords, key=len, reverse=True)
+        # "한강 광나루보" 같은 복합 위치명 처리
+        # 예: "한강 광나루보" -> "한강_광나루보" 또는 "광나루보"
+        complex_patterns = [
+            (r'한강\s+([가-힣]+보)', r'한강_\1'),  # "한강 광나루보" -> "한강_광나루보"
+            (r'한강\s+([가-힣]+)', r'한강_\1'),     # "한강 이천" -> "한강_이천"
+        ]
         
-        for keyword in sorted_keywords:
-            if keyword in message:
-                location = keyword
-                break
+        for pattern, replacement in complex_patterns:
+            match = re.search(pattern, message)
+            if match:
+                potential_location = re.sub(pattern, replacement, message)
+                # 매칭 테이블이나 알려진 위치에 있는지 확인
+                if potential_location in location_keywords:
+                    location = potential_location
+                    break
+                # 부분 매칭 시도
+                for keyword in location_keywords:
+                    if potential_location in keyword or keyword in potential_location:
+                        location = keyword
+                        break
+                if location:
+                    break
         
-        # 타겟 날짜 계산 (기준 날짜 + 주 단위)
-        target_date = base_date + timedelta(weeks=weeks_ahead)
+        # 기존 로직: 긴 위치명부터 매칭 (예: "강정고령보"가 "강정"보다 우선)
+        if not location:
+            sorted_keywords = sorted(location_keywords, key=len, reverse=True)
+            
+            for keyword in sorted_keywords:
+                if keyword in message:
+                    location = keyword
+                    break
+        
+        # 타겟 날짜 계산
+        # 모델은 "과거 7주 → 다음 1주"를 예측하므로,
+        # "일주일 뒤 예측" = 현재 기준 다음 주 전체의 평균값 예측
+        # 따라서 target_date는 현재 날짜로 설정 (모델이 자동으로 다음 1주를 예측)
+        target_date = base_date
         
         return {
             "needs_prediction": True,
             "location": location,
             "target_date": target_date,
-            "weeks_ahead": weeks_ahead
+            "weeks_ahead": weeks_ahead  # 사용자 요청 정보는 유지 (표시용)
         }
     
     async def _perform_prediction(
@@ -280,6 +322,29 @@ class ChatService:
                         locations.add(parts[1])  # 예: "다사"
             return list(locations)
         return []
+    
+    def _get_available_locations(self, db) -> List[str]:
+        """데이터베이스에서 실제로 존재하는 위치 목록 조회 (녹조 데이터 기준)"""
+        from sqlalchemy import distinct
+        from app.models.env_data import EnvironmentalData
+        
+        cyano_types = [
+            '유해남조류 세포수 (cells/㎖)',
+            'Microcystis',
+            'Anabaena',
+            'Oscillatoria',
+            'Aphanizomenon'
+        ]
+        
+        try:
+            locations = db.query(distinct(EnvironmentalData.location)).filter(
+                EnvironmentalData.data_type.in_(cyano_types)
+            ).order_by(EnvironmentalData.location).all()
+            
+            return [loc[0] for loc in locations]
+        except Exception as e:
+            print(f"위치 목록 조회 오류: {e}")
+            return []
     
     def _is_prediction_high(self, prediction_result: Dict[str, Any]) -> bool:
         """
@@ -449,9 +514,27 @@ class ChatService:
                 predictions = prediction_result.get("predictions", {})
                 metadata = prediction_result.get("metadata", {})
                 data_info = metadata.get("data_info", {})
+                quality_info = metadata.get("quality", {})
                 
                 context_parts.append(f"위치: {prediction_result.get('location', '알 수 없음')}")
-                context_parts.append(f"예측 날짜: {prediction_result.get('target_date', '알 수 없음')}")
+                
+                # 예측 기간 계산 (target_date의 다음 1주)
+                target_date_str = prediction_result.get('target_date', '')
+                if target_date_str:
+                    try:
+                        from datetime import datetime
+                        target_date_obj = datetime.fromisoformat(target_date_str.replace('Z', '+00:00'))
+                        predicted_week_start = target_date_obj + timedelta(weeks=1)
+                        predicted_week_end = predicted_week_start + timedelta(days=6)
+                        context_parts.append(f"예측 기간: {predicted_week_start.date()} ~ {predicted_week_end.date()} (다음 주 전체의 평균값)")
+                    except:
+                        context_parts.append(f"예측 날짜: {target_date_str} 기준 다음 주")
+                else:
+                    context_parts.append(f"예측 날짜: 다음 주")
+                
+                # 모델 한계 명시 (필수)
+                context_parts.append("\n[모델 정보]")
+                context_parts.append("이 모델은 과거 7주 실제 관측 데이터 기반으로, 다음 1주 전체의 평균값을 예측합니다.")
                 
                 # 데이터베이스 정보 및 사용된 데이터 정보
                 db_date_range = data_info.get("db_date_range", {})
@@ -459,16 +542,37 @@ class ChatService:
                 data_source = data_info.get("data_source")
                 data_date_range = data_info.get("data_date_range", {})
                 
-                context_parts.append("\n[데이터베이스 정보]")
                 if db_date_range.get("min") and db_date_range.get("max"):
                     context_parts.append(f"데이터베이스에 저장된 날짜 범위: {db_date_range['min']} ~ {db_date_range['max']}")
+                
+                if data_date_range.get("min") and data_date_range.get("max"):
+                    context_parts.append(f"실제 예측에 사용된 데이터 날짜 범위: {data_date_range['min']} ~ {data_date_range['max']}")
                 
                 if data_source == "latest_available" and used_base_date:
                     context_parts.append(f"⚠ 요청한 예측 날짜({prediction_result.get('target_date')}) 기준으로 과거 7주 데이터가 없어,")
                     context_parts.append(f"  데이터베이스의 최신 데이터 날짜({used_base_date}) 기준으로 예측을 수행했습니다.")
                 
-                if data_date_range.get("min") and data_date_range.get("max"):
-                    context_parts.append(f"실제 예측에 사용된 데이터 날짜 범위: {data_date_range['min']} ~ {data_date_range['max']}")
+                # 데이터 품질 및 신뢰도 정보
+                if quality_info:
+                    reliability_level = quality_info.get("reliability_level", "unknown")
+                    quality_score = quality_info.get("quality_score", 0.0)
+                    weeks_with_data = quality_info.get("weeks_with_data", 0)
+                    total_weeks_needed = quality_info.get("total_weeks_needed", 7)
+                    
+                    reliability_kr = {
+                        "high": "높음",
+                        "medium": "중간",
+                        "low": "낮음"
+                    }.get(reliability_level, "알 수 없음")
+                    
+                    context_parts.append(f"\n[데이터 품질 및 신뢰도]")
+                    context_parts.append(f"신뢰도 레벨: {reliability_kr} (품질 점수: {quality_score:.0%})")
+                    context_parts.append(f"데이터 완전도: {weeks_with_data}/{total_weeks_needed}주 데이터 사용")
+                    
+                    if reliability_level == "low":
+                        context_parts.append("⚠ 데이터가 부족하여 예측 신뢰도가 낮을 수 있습니다.")
+                    elif reliability_level == "medium":
+                        context_parts.append("⚠ 일부 데이터가 누락되어 예측 신뢰도가 중간 수준입니다.")
                 
                 # 예측값들
                 if predictions:
@@ -522,25 +626,43 @@ class ChatService:
         """
         suggestions = []
         
+        # 데이터나 문서가 있을 때 근거/출처 제안 추가 (최우선)
+        has_data = env_data.get("statistics", {}).get("overall", {}).get("count", 0) > 0
+        has_docs = len(rag_docs) > 0
+        has_prediction = prediction_result and prediction_result.get("success")
+        
+        if has_data or has_docs or has_prediction:
+            suggestions.append("어떤 근거로 말하는지 알려드릴까요?")
+        
         # 데이터가 있을 때 제안
-        if env_data.get("statistics", {}).get("count", 0) > 0:
+        if has_data:
             metadata = env_data.get("metadata", {})
             if metadata.get("data_type") == "algae":
                 suggestions.append("녹조 농도가 높을 때 대응 방법을 알려주세요")
             if metadata.get("location"):
                 suggestions.append(f"{metadata['location']}의 다른 기간 데이터도 보여주세요")
+            
+            # 예측이 수행되지 않았고, 위치 정보가 있다면 예측 제안
+            if not has_prediction and metadata.get("location"):
+                suggestions.append(f"{metadata['location']}의 다음주 녹조 예측을 해볼까요?")
         
         # RAG 문서가 있을 때 제안
-        if rag_docs:
+        if has_docs:
             for doc in rag_docs[:2]:
                 if "가이드라인" in doc.get("title", "") or "가이드라인" in doc.get("source", ""):
                     suggestions.append("가이드라인을 자세히 설명해주세요")
+                    break
         
         # 예측 결과가 있을 때 제안
-        if prediction_result and prediction_result.get("success"):
-            # 예측 결과가 높을 때 가이드라인 제안 우선
-            if self._is_prediction_high(prediction_result):
-                suggestions.append("녹조가 높을 때 대응 방법을 알려주세요")
+        if has_prediction:
+            location = prediction_result.get("location")
+            if location:
+                suggestions.append(f"{location}의 과거 녹조 추이를 보여주세요")
+                suggestions.append(f"{location}의 예측 결과에 대한 상세 설명을 해주세요")
+                
+                # 예측 결과가 높을 때 가이드라인 제안
+                if self._is_prediction_high(prediction_result):
+                    suggestions.append("녹조가 높을 때 대응 방법을 알려주세요")
                 suggestions.append("가이드라인을 자세히 설명해주세요")
             else:
                 suggestions.append("다른 위치의 예측도 해주세요")

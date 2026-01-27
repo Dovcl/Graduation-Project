@@ -3,6 +3,8 @@ FastAPI 애플리케이션 엔트리 포인트
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from app.core.config import settings
 from app.api import chat
 
@@ -24,6 +26,11 @@ app.add_middleware(
 
 # 라우터 등록
 app.include_router(chat.router, prefix="/api", tags=["chat"])
+
+# 정적 파일 서빙 (프론트엔드)
+frontend_path = Path(__file__).parent.parent.parent / "frontend"
+if frontend_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="static")
 
 
 @app.get("/")
