@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from app.database import get_db
 from app.models.env_data import EnvironmentalData
+from app.models.location_mapping import LocationMapping
 import re
 import json
 from pathlib import Path
@@ -50,8 +51,10 @@ class DataService:
             
             mapping = {
                 '수질': 'water_quality', # 일반적인 카테고리
-                '녹조': 'algae',
-                '조류': 'algae',
+                '녹조': '유해남조류 세포수 (cells/㎖)',  # 변경: 'algae' 대신 실제 DB 컬럼명 사용
+                '조류': '유해남조류 세포수 (cells/㎖)',  # 변경: 'algae' 대신 실제 DB 컬럼명 사용
+                '녹조 농도': '유해남조류 세포수 (cells/㎖)',  # 추가
+                '조류 농도': '유해남조류 세포수 (cells/㎖)',  # 추가
                 '수문': 'hydrology',
                 '기상': 'weather',
                 '온도': '수온(℃)',
@@ -208,6 +211,28 @@ class DataService:
             if location_by_coords:
                 return location_by_coords
         
+        # 0. "한강 광나루보" 같은 복합 위치명 처리
+        # 예: "한강 광나루보" -> "한강_광나루보" 또는 "광나루보"
+        complex_patterns = [
+            (r'한강\s+([가-힣]+보)', r'한강_\1'),  # "한강 광나루보" -> "한강_광나루보"
+            (r'한강\s+([가-힣]+)', r'한강_\1'),     # "한강 이천" -> "한강_이천"
+            (r'낙동강\s+([가-힣]+)', r'낙동강_\1'), # "낙동강 해평" -> "낙동강_해평"
+            (r'금강\s+([가-힣]+)', r'금강_\1'),     # "금강 공주" -> "금강_공주"
+        ]
+        
+        for pattern, replacement in complex_patterns:
+            match = re.search(pattern, query)
+            if match:
+                potential_location = re.sub(pattern, replacement, match.group(0))
+                # 알려진 위치에 있는지 확인
+                sorted_locations = sorted(self.known_locations, key=len, reverse=True)
+                if potential_location in sorted_locations:
+                    return potential_location
+                # 부분 매칭 시도
+                for known_loc in sorted_locations:
+                    if potential_location in known_loc or known_loc in potential_location:
+                        return known_loc
+        
         # 1. 알려진 위치명과 정확히 일치하거나 포함되는지 확인
         # 더 긴 위치명을 우선적으로 매칭 (예: "강천보"가 "강천"보다 우선)
         # 길이순으로 정렬하여 긴 것부터 확인
@@ -247,6 +272,65 @@ class DataService:
                     return db_type
         
         return None
+    
+    def _get_wq_location(self, algae_location: str, db: Session) -> Optional[str]:
+        """
+        녹조 지점으로부터 매칭된 수질 지점 찾기
+        
+        Args:
+            algae_location: 녹조 지점명
+            db: 데이터베이스 세션
+        
+        Returns:
+            매칭된 수질 지점명 또는 None
+        """
+        # 정확한 매칭 시도
+        mapping = db.query(LocationMapping).filter(
+            LocationMapping.algae_location == algae_location
+        ).first()
+        
+        if mapping:
+            return mapping.wq_location
+        
+        # 부분 매칭 시도 (contains)
+        mapping = db.query(LocationMapping).filter(
+            LocationMapping.algae_location.contains(algae_location)
+        ).first()
+        
+        if mapping:
+            return mapping.wq_location
+        
+        # 역방향 매칭 시도 (algae_location이 location을 포함하는 경우)
+        mapping = db.query(LocationMapping).filter(
+            algae_location.contains(LocationMapping.algae_location)
+        ).first()
+        
+        if mapping:
+            return mapping.wq_location
+        
+        # 매칭되지 않으면 None 반환 (기존 동작 유지)
+        return None
+    
+    def _is_cyano_data_type(self, data_type: str) -> bool:
+        """데이터 타입이 녹조 관련인지 확인"""
+        cyano_vars = [
+            "유해남조류 세포수 (cells/㎖)",
+            "Microcystis",
+            "Anabaena",
+            "Oscillatoria",
+            "Aphanizomenon"
+        ]
+        return data_type in cyano_vars
+    
+    def _is_wq_data_type(self, data_type: str) -> bool:
+        """데이터 타입이 수질 관련인지 확인"""
+        wq_vars = [
+            "수온(℃)",
+            "DO(㎎/L)",
+            "TN",
+            "TP"
+        ]
+        return data_type in wq_vars
     
     async def query(
         self,
@@ -306,6 +390,9 @@ class DataService:
                 filters.append(EnvironmentalData.date <= end_date)
             
             if location:
+                # 매칭 테이블에서 수질 지점 찾기
+                wq_location = self._get_wq_location(location, db)
+                
                 # 위치 매칭: 유연한 매칭
                 # "강천보"를 검색할 때 "강천보_강천"과 "강천보" 둘 다 찾을 수 있도록
                 location_filters = [
@@ -319,6 +406,22 @@ class DataService:
                     # location이 known_loc에 포함되거나, known_loc이 location에 포함되면 검색
                     if location in known_loc or known_loc in location:
                         location_filters.append(EnvironmentalData.location == known_loc)
+                
+                # 매칭된 수질 지점이 있고, 수질 데이터를 요청한 경우
+                if wq_location and data_type:
+                    if self._is_wq_data_type(data_type):
+                        # 수질 변수 요청 시: 매칭된 수질 지점에서 조회
+                        location_filters.append(EnvironmentalData.location == wq_location)
+                        location_filters.append(EnvironmentalData.location.contains(wq_location))
+                        print(f"ℹ 매칭 테이블 사용: {location} → {wq_location} (수질 데이터 조회)")
+                    elif self._is_cyano_data_type(data_type):
+                        # 녹조 변수 요청 시: 원래 지점에서만 조회
+                        pass
+                elif wq_location and not data_type:
+                    # 데이터 타입이 지정되지 않은 경우: 두 지점 모두에서 조회
+                    location_filters.append(EnvironmentalData.location == wq_location)
+                    location_filters.append(EnvironmentalData.location.contains(wq_location))
+                    print(f"ℹ 매칭 테이블 사용: {location} → {wq_location} (전체 데이터 조회)")
                 
                 filters.append(or_(*location_filters))
             

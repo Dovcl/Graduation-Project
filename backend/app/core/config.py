@@ -8,9 +8,9 @@ from typing import List, Union
 
 class Settings(BaseSettings):
     """애플리케이션 설정"""
-    
-    # 데이터베이스
-    DATABASE_URL: str = "postgresql://postgres:!kdh032500@localhost:5433/rag_chatbot_db"  # Docker 포트 5433 사용
+
+    # 데이터베이스 (실제 비밀번호는 .env 파일에서 설정)
+    DATABASE_URL: str = "postgresql://postgres:password@localhost:5433/rag_chatbot_db"
     
     # LLM API 키
     GROQ_API_KEY: str = ""  # 선택적 (사용 안 함)
