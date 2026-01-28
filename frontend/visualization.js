@@ -93,7 +93,9 @@ function switchTab(tabName) {
         // Plotly 플롯 렌더링 (데이터가 있을 때만)
         const plotPanel = document.getElementById('plotPanel');
         if (plotPanel && plotPanel.classList.contains('active')) {
-            if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+            // 상세 플롯용: plot_points 우선, 없으면 map_points 사용
+            const plotData = visualizationData?.plot_points || visualizationData?.map_points;
+            if (plotData && plotData.length > 0) {
                 console.log('상세 플롯 탭 클릭: Plotly 플롯 렌더링 시작');
                 setTimeout(() => {
                     renderPlotlyChart();
@@ -291,18 +293,29 @@ function renderMap() {
     console.log('지도 포인트 렌더링 시작, 포인트 개수:', mapPoints.length);
     console.log('지도 포인트 데이터:', JSON.stringify(mapPoints, null, 2));
 
-    // 값 범위 계산 (컬러바용)
+    // 값 범위 계산 (컬러바용) - 값이 있는 포인트만
     const values = mapPoints.map(p => p.value).filter(v => v !== null && v !== undefined);
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
-
-    // 컬러바 생성
-    renderColorbar(minValue, maxValue);
+    const hasValues = values.length > 0;
+    
+    let minValue = 0;
+    let maxValue = 1;
+    if (hasValues) {
+        minValue = Math.min(...values);
+        maxValue = Math.max(...values);
+        // 컬러바 생성 (값이 있는 경우만)
+        renderColorbar(minValue, maxValue);
+    }
 
     // 설명 표시
     const mapPointDesc = document.getElementById('mapPointDescription');
     if (mapPointDesc) {
-        mapPointDesc.style.display = 'inline';
+        if (hasValues) {
+            mapPointDesc.style.display = 'inline';
+            mapPointDesc.textContent = '색상이 있는 원형 마커는 예측 지점의 녹조 농도를 나타냅니다 (색이 진할수록 높은 값).';
+        } else {
+            mapPointDesc.style.display = 'inline';
+            mapPointDesc.textContent = '원형 마커는 관측 지점의 위치를 나타냅니다.';
+        }
     }
 
     // 포인트 추가
@@ -314,34 +327,47 @@ function renderMap() {
             return;
         }
 
-        const color = getColorByValue(point.value, minValue, maxValue);
-        const radius = 10;  // 크기 증가
+        // 값이 있으면 색상 계산, 없으면 기본 색상 (회색)
+        let color = '#999';  // 기본 색상 (값 없음)
+        if (point.value !== null && point.value !== undefined && hasValues) {
+            color = getColorByValue(point.value, minValue, maxValue);
+        }
+        
+        const radius = 8;  // 크기
 
-        console.log(`마커 추가: lat=${point.lat}, lng=${point.lng}, color=${color}, value=${point.value}`);
+        console.log(`마커 추가: lat=${point.lat}, lng=${point.lng}, color=${color}, value=${point.value || 'N/A'}`);
         const marker = L.circleMarker([point.lat, point.lng], {
             radius: radius,
             fillColor: color,
             color: '#fff',
             weight: 2,
-            fillOpacity: 0.9
+            fillOpacity: 0.8
         }).addTo(map);
         addedCount++;
 
         // 팝업 추가
-        const popupContent = `
+        let popupContent = `
             <div class="map-popup">
                 <strong>${point.name || point.site_id}</strong><br>
+        `;
+        
+        if (point.value !== null && point.value !== undefined) {
+            popupContent += `
                 <hr style="margin: 0.5rem 0;">
                 <strong>예측값:</strong><br>
                 ${visualizationData.query_context?.variable || '유해남조류 세포수'}: 
-                ${point.value !== null && point.value !== undefined ? point.value.toFixed(2) : 'N/A'} 
+                ${point.value.toFixed(2)} 
                 ${visualizationData.query_context?.unit || 'cells/㎖'}
-            </div>
-        `;
-        marker.bindPopup(popupContent);
+            `;
+        } else {
+            popupContent += `
+                <hr style="margin: 0.5rem 0;">
+                <em>관측 지점</em>
+            `;
+        }
         
-        // 마커 클릭 시 팝업 자동 열기
-        marker.openPopup();
+        popupContent += `</div>`;
+        marker.bindPopup(popupContent);
     });
     
     console.log(`총 ${addedCount}개의 마커가 추가되었습니다.`);
@@ -552,8 +578,8 @@ function updateVisualizationInfo() {
     }
 }
 
-// Plotly 상세 플롯 렌더링 (B안 - 노트북 스타일)
-function renderPlotlyChart() {
+// Plotly 상세 플롯 렌더링 (OpenStreetMap + GeoJSON 오버레이)
+async function renderPlotlyChart() {
     const plotContainer = document.getElementById('plotContainer');
     if (!plotContainer) {
         console.error('plotContainer 요소를 찾을 수 없습니다.');
@@ -565,14 +591,14 @@ function renderPlotlyChart() {
         return;
     }
 
-    const mapPoints = visualizationData.map_points || [];
+    // 상세 플롯용: plot_points 우선, 없으면 map_points 사용
+    const mapPoints = visualizationData.plot_points || visualizationData.map_points || [];
     if (mapPoints.length === 0) {
-        console.warn('Plotly 플롯: map_points가 없습니다.');
+        console.warn('Plotly 플롯: plot_points/map_points가 없습니다.');
         return;
     }
 
     console.log('Plotly 플롯 렌더링 시작, 포인트 개수:', mapPoints.length);
-    console.log('Plotly 플롯 데이터:', JSON.stringify(mapPoints, null, 2));
 
     // 값 범위 계산
     const values = mapPoints.map(p => p.value).filter(v => v !== null && v !== undefined);
@@ -584,86 +610,157 @@ function renderPlotlyChart() {
     const minValue = Math.min(...values);
     const maxValue = Math.max(...values);
 
-    // Viridis 색상 스케일 (Plotly 내장)
-    const colorscale = 'Viridis';
+    // 지도 중심 및 줌 계산
+    const lats = mapPoints.map(p => p.lat);
+    const lons = mapPoints.map(p => p.lng);
+    const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+    const centerLon = lons.reduce((a, b) => a + b, 0) / lons.length;
 
-    // 산점도 데이터 준비
-    const x = mapPoints.map(p => p.lng);
-    const y = mapPoints.map(p => p.lat);
-    const z = mapPoints.map(p => p.value);
+    // 트레이스 배열 (GeoJSON + 마커)
+    const traces = [];
 
-    // Plotly 트레이스 생성 (마커 크기 및 스타일 개선)
-    const trace = {
-        type: 'scatter',
-        mode: 'markers',
-        x: x,
-        y: y,
+    // GeoJSON 데이터 로드 및 추가
+    try {
+        // 유역 경계선 로드
+        const watershedResponse = await fetch('/static/data/watershed.geojson');
+        if (watershedResponse.ok) {
+            const watershedData = await watershedResponse.json();
+
+            // GeoJSON의 각 feature를 Plotly trace로 변환
+            if (watershedData.features) {
+                watershedData.features.forEach((feature, idx) => {
+                    if (feature.geometry.type === 'Polygon') {
+                        const coords = feature.geometry.coordinates[0];
+                        traces.push({
+                            type: 'scattermapbox',
+                            mode: 'lines',
+                            lon: coords.map(c => c[0]),
+                            lat: coords.map(c => c[1]),
+                            line: { color: '#888', width: 1 },
+                            fill: 'toself',
+                            fillcolor: 'rgba(200, 200, 200, 0.2)',
+                            hoverinfo: 'skip',
+                            showlegend: false
+                        });
+                    } else if (feature.geometry.type === 'MultiPolygon') {
+                        feature.geometry.coordinates.forEach(polygon => {
+                            const coords = polygon[0];
+                            traces.push({
+                                type: 'scattermapbox',
+                                mode: 'lines',
+                                lon: coords.map(c => c[0]),
+                                lat: coords.map(c => c[1]),
+                                line: { color: '#888', width: 1 },
+                                fill: 'toself',
+                                fillcolor: 'rgba(200, 200, 200, 0.2)',
+                                hoverinfo: 'skip',
+                                showlegend: false
+                            });
+                        });
+                    }
+                });
+            }
+            console.log('유역 경계선 로드 완료');
+        }
+
+        // 하천망 로드
+        const riversResponse = await fetch('/static/data/rivers.geojson');
+        if (riversResponse.ok) {
+            const riversData = await riversResponse.json();
+
+            // 하천 데이터를 하나의 trace로 합치기 (성능 최적화)
+            const riverLons = [];
+            const riverLats = [];
+
+            if (riversData.features) {
+                riversData.features.slice(0, 500).forEach((feature) => {  // 최대 500개로 제한 (성능)
+                    if (feature.geometry.type === 'LineString') {
+                        const coords = feature.geometry.coordinates;
+                        coords.forEach(c => {
+                            riverLons.push(c[0]);
+                            riverLats.push(c[1]);
+                        });
+                        riverLons.push(null);  // 선 분리
+                        riverLats.push(null);
+                    } else if (feature.geometry.type === 'MultiLineString') {
+                        feature.geometry.coordinates.forEach(line => {
+                            line.forEach(c => {
+                                riverLons.push(c[0]);
+                                riverLats.push(c[1]);
+                            });
+                            riverLons.push(null);
+                            riverLats.push(null);
+                        });
+                    }
+                });
+            }
+
+            if (riverLons.length > 0) {
+                traces.push({
+                    type: 'scattermapbox',
+                    mode: 'lines',
+                    lon: riverLons,
+                    lat: riverLats,
+                    line: { color: '#4A90E2', width: 1.5 },
+                    hoverinfo: 'skip',
+                    showlegend: false
+                });
+            }
+            console.log('하천망 로드 완료');
+        }
+    } catch (e) {
+        console.warn('GeoJSON 로드 실패:', e);
+    }
+
+    // 마커 트레이스 (예측 포인트)
+    const markerTrace = {
+        type: 'scattermapbox',
+        mode: 'markers+text',
+        lon: lons,
+        lat: lats,
         marker: {
-            size: mapPoints.length === 1 ? 20 : 15,  // 단일 포인트일 때 더 크게
-            color: z,
-            colorscale: colorscale,
+            size: mapPoints.length === 1 ? 25 : 18,
+            color: values,
+            colorscale: 'Viridis',
+            cmin: minValue,
+            cmax: maxValue,
             showscale: true,
             colorbar: {
                 title: {
                     text: visualizationData.query_context?.variable || '유해남조류 세포수',
-                    font: { color: '#333', size: 12 }
+                    font: { size: 12 }
                 },
-                tickfont: { color: '#666', size: 10 },
-                tickcolor: '#666',
-                outlinewidth: 1,
-                outlinecolor: '#999',
                 len: 0.8,
-                thickness: 15
+                thickness: 15,
+                x: 1.02
             },
-            line: {
-                color: '#333',
-                width: 2
-            },
-            opacity: 0.9,
-            sizemin: 10,
-            sizemax: 30
+            opacity: 0.9
         },
-        text: mapPoints.map(p => `${p.name || p.site_id}<br>값: ${p.value !== null ? p.value.toFixed(2) : 'N/A'}`),
-        hovertemplate: '<b>%{text}</b><br>경도: %{x:.4f}<br>위도: %{y:.4f}<extra></extra>'
+        text: mapPoints.map(p => p.name || p.site_id),
+        textposition: 'top center',
+        textfont: { size: 10, color: '#333' },
+        hovertemplate: mapPoints.map(p =>
+            `<b>${p.name || p.site_id}</b><br>` +
+            `값: ${p.value !== null ? p.value.toFixed(2) : 'N/A'} cells/㎖<br>` +
+            `위도: %{lat:.4f}<br>경도: %{lon:.4f}<extra></extra>`
+        ),
+        showlegend: false
     };
+    traces.push(markerTrace);
 
-    // 레이아웃 설정 (밝은 테마로 변경 - 가독성 향상)
+    // 레이아웃 설정 (OpenStreetMap 타일)
     const layout = {
         title: {
-            text: '녹조 예측 지도 (상세 플롯)',
-            font: { color: '#333', size: 16 },
+            text: `녹조 예측 지도 - ${visualizationData.query_context?.site_name || ''}`,
+            font: { size: 16 },
             x: 0.5
         },
-        xaxis: {
-            title: {
-                text: 'Longitude',
-                font: { color: '#333', size: 12 }
-            },
-            gridcolor: '#e0e0e0',
-            gridwidth: 1,
-            zeroline: false,
-            tickfont: { color: '#666', size: 10 },
-            linecolor: '#999',
-            linewidth: 1,
-            showgrid: true
+        mapbox: {
+            style: 'open-street-map',  // 무료 OSM 타일 사용
+            center: { lat: centerLat, lon: centerLon },
+            zoom: mapPoints.length === 1 ? 10 : 7
         },
-        yaxis: {
-            title: {
-                text: 'Latitude',
-                font: { color: '#333', size: 12 }
-            },
-            gridcolor: '#e0e0e0',
-            gridwidth: 1,
-            zeroline: false,
-            tickfont: { color: '#666', size: 10 },
-            linecolor: '#999',
-            linewidth: 1,
-            showgrid: true
-        },
-        plot_bgcolor: '#ffffff',
-        paper_bgcolor: '#ffffff',
-        font: { color: '#333' },
-        margin: { l: 60, r: 20, t: 60, b: 60 },
+        margin: { l: 0, r: 0, t: 50, b: 0 },
         showlegend: false
     };
 
@@ -675,21 +772,13 @@ function renderPlotlyChart() {
         displaylogo: false
     };
 
-    // 기존 플롯이 있으면 업데이트, 없으면 새로 생성
     try {
-        if (plotlyChart && plotlyChart === plotContainer) {
-            console.log('기존 Plotly 플롯 업데이트');
-            Plotly.react(plotContainer, [trace], layout, config);
-        } else {
-            console.log('새 Plotly 플롯 생성');
-            // 기존 플롯이 있으면 제거
-            if (plotlyChart) {
-                Plotly.purge(plotlyChart);
-            }
-            Plotly.newPlot(plotContainer, [trace], layout, config);
-            plotlyChart = plotContainer;
+        if (plotlyChart) {
+            Plotly.purge(plotlyChart);
         }
-        console.log('Plotly 플롯 렌더링 완료');
+        Plotly.newPlot(plotContainer, traces, layout, config);
+        plotlyChart = plotContainer;
+        console.log('Plotly 플롯 렌더링 완료 (OpenStreetMap + GeoJSON)');
     } catch (error) {
         console.error('Plotly 플롯 렌더링 오류:', error);
     }

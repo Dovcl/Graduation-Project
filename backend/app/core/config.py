@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # 임베딩 모델 설정
     EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     
+    # 데이터 파일 경로 설정
+    STATIONS_CSV_PATH: str = ""  # 빈 문자열이면 기본 경로 사용
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

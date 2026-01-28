@@ -50,7 +50,8 @@ class VisualizationData(BaseModel):
     generated_at: str  # ISO format
     query_context: QueryContext
     timeseries: Optional[TimeseriesData] = None
-    map_points: Optional[List[MapPoint]] = None
+    map_points: Optional[List[MapPoint]] = None  # 지도용: 모든 관측 지점
+    plot_points: Optional[List[MapPoint]] = None  # 상세 플롯용: 예측값이 있는 지점만
     metrics: Optional[Dict[str, float]] = None
     visualizations_error: Optional[str] = None  # 개발 모드용
 

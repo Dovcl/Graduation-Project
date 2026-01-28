@@ -9,6 +9,7 @@ from sqlalchemy import func, extract
 
 from app.models.env_data import EnvironmentalData
 from app.models.location_mapping import LocationMapping
+from app.models.monitoring_station import MonitoringStation
 
 
 def get_site_coordinates(site_name: str, db: Session) -> Optional[Dict[str, float]]:
@@ -263,4 +264,88 @@ def get_multiple_sites_data(
         logging.error(f"여러 지점 데이터 조회 실패: {e}")
     
     return result
+
+
+def get_all_monitoring_stations(db: Session) -> List[Dict[str, Any]]:
+    """
+    모든 관측 지점의 좌표 조회 (지도용)
+    
+    노트북의 "Algal Monitoring Stations over Watershed and River Network" 방식
+    데이터베이스의 monitoring_stations 테이블에서 조회
+    
+    Args:
+        db: 데이터베이스 세션
+    
+    Returns:
+        모든 관측 지점 리스트
+        [
+            {
+                "site_id": str,
+                "name": str,
+                "lat": float,
+                "lng": float
+            },
+            ...
+        ]
+    """
+    result = []
+    
+    try:
+        # monitoring_stations 테이블에서 모든 지점 조회
+        stations = db.query(MonitoringStation).filter(
+            MonitoringStation.latitude.isnot(None),
+            MonitoringStation.longitude.isnot(None)
+        ).all()
+        
+        if stations:
+            for station in stations:
+                result.append({
+                    "site_id": station.station_name,
+                    "name": station.station_name,
+                    "lat": float(station.latitude),
+                    "lng": float(station.longitude)
+                })
+            print(f"✓ DB에서 {len(result)}개 관측 지점 조회 완료")
+            return result
+        
+        # monitoring_stations 테이블이 비어있으면 폴백: location_mapping 테이블 사용
+        print(f"⚠ monitoring_stations 테이블이 비어있습니다. location_mapping 폴백 사용")
+        return _get_stations_from_db(db)
+    
+    except Exception as e:
+        import logging
+        logging.error(f"DB에서 관측 지점 조회 실패: {e}")
+        print(f"❌ DB 조회 실패: {e}")
+        # 폴백: location_mapping 테이블 사용
+        return _get_stations_from_db(db)
+
+
+def _get_stations_from_db(db: Session) -> List[Dict[str, Any]]:
+    """location_mapping 테이블에서 관측 지점 조회 (폴백)"""
+    result = []
+    
+    try:
+        mappings = db.query(LocationMapping).filter(
+            LocationMapping.latitude.isnot(None),
+            LocationMapping.longitude.isnot(None)
+        ).all()
+        
+        for mapping in mappings:
+            if mapping.latitude and mapping.longitude:
+                site_name = mapping.algae_location or mapping.wq_location or ""
+                if site_name:
+                    result.append({
+                        "site_id": site_name,
+                        "name": site_name,
+                        "lat": float(mapping.latitude),
+                        "lng": float(mapping.longitude)
+                    })
+        
+        print(f"✓ DB에서 {len(result)}개 관측 지점 조회 완료 (폴백)")
+        return result
+    
+    except Exception as e:
+        import logging
+        logging.error(f"DB에서 관측 지점 조회 실패: {e}")
+        return []
 

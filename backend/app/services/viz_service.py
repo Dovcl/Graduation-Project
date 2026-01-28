@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.services.viz_transform import build_timeseries, build_map_points, calculate_metrics
-from app.services.viz_query import get_site_coordinates, get_timeseries_data, get_multiple_sites_data
+from app.services.viz_query import get_site_coordinates, get_timeseries_data, get_multiple_sites_data, get_all_monitoring_stations
 from app.schemas.chat import VisualizationData, QueryContext, TimeseriesData, MapPoint
 from app.core.config import settings
 import logging
@@ -64,14 +64,25 @@ class VisualizationService:
             else:
                 print(f"⚠ 시계열 데이터 생성 실패: location={location}, variable={variable}")
             
-            # 지도 포인트 데이터 준비
-            map_points = self._build_map_points_data(
+            # 지도 포인트 데이터 준비 (모든 관측 지점 표시 - 노트북의 "Algal Monitoring Stations" 방식)
+            # 상세 플롯용: 예측값이 있는 지점만 (기존 방식 유지)
+            plot_map_points = self._build_map_points_data(
                 location, variable, target_date, prediction_result, db
             )
+            # 지도용: 모든 관측 지점
+            all_stations_map_points = self._build_all_stations_map_data(db)
+            
+            # 지도는 모든 지점, 상세 플롯은 예측값이 있는 지점만
+            map_points = all_stations_map_points if all_stations_map_points else plot_map_points
+            
             if map_points:
-                print(f"✓ 지도 포인트 데이터 생성 완료: {len(map_points)}개")
+                print(f"✓ 지도 포인트 데이터 생성 완료: {len(map_points)}개 (지도: 모든 지점, 상세 플롯: 예측값 있는 지점)")
             else:
-                print(f"⚠ 지도 포인트 데이터 생성 실패: location={location}")
+                print(f"⚠ 지도 포인트 데이터 생성 실패")
+            
+            # 상세 플롯용 데이터는 별도로 저장 (예측값이 있는 지점만)
+            if plot_map_points:
+                print(f"✓ 상세 플롯 포인트 데이터: {len(plot_map_points)}개")
             
             # 메트릭 계산
             metrics = None
@@ -89,6 +100,7 @@ class VisualizationService:
                 query_context=QueryContext(**query_context),
                 timeseries=TimeseriesData(**timeseries) if timeseries else None,
                 map_points=[MapPoint(**mp) for mp in map_points] if map_points else None,
+                plot_points=[MapPoint(**mp) for mp in plot_map_points] if plot_map_points else None,  # 상세 플롯용
                 metrics=metrics,
                 visualizations_error=None
             )
@@ -110,6 +122,7 @@ class VisualizationService:
                     ),
                     timeseries=None,
                     map_points=None,
+                    plot_points=None,
                     metrics=None,
                     visualizations_error=str(e)
                 )
@@ -262,6 +275,39 @@ class VisualizationService:
         except Exception as e:
             logger.error(f"지도 포인트 데이터 구성 실패: {e}", exc_info=True)
             print(f"❌ 지도 포인트 데이터 구성 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _build_all_stations_map_data(
+        self,
+        db: Session
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        모든 관측 지점 지도 데이터 구성
+        
+        노트북의 "Algal Monitoring Stations over Watershed and River Network" 방식
+        모든 관측 지점을 지도에 표시 (값 없이 위치만)
+        """
+        try:
+            print(f"🔍 모든 관측 지점 지도 데이터 생성 시작")
+            
+            # 모든 관측 지점 조회
+            all_stations = get_all_monitoring_stations(db)
+            if not all_stations:
+                print(f"❌ 관측 지점 조회 실패")
+                return None
+            
+            print(f"✓ 관측 지점 조회 성공: {len(all_stations)}개")
+            
+            # 지도 포인트 생성 (값은 없음 - 단순히 지점 위치만 표시)
+            result = build_map_points(all_stations)
+            print(f"✓ 모든 관측 지점 지도 포인트 생성 완료: {len(result)}개")
+            return result
+        
+        except Exception as e:
+            logger.error(f"모든 관측 지점 지도 데이터 구성 실패: {e}", exc_info=True)
+            print(f"❌ 모든 관측 지점 지도 데이터 구성 중 오류: {e}")
             import traceback
             traceback.print_exc()
             return None
