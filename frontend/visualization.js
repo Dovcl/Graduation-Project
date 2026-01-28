@@ -4,11 +4,13 @@
 // 전역 변수
 let map = null;
 let timeseriesChart = null;
+let plotlyChart = null;
 let visualizationData = null;
 
 // 초기화
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
+    setupDownloadButton();
     loadVisualizationData();
 });
 
@@ -53,6 +55,11 @@ function switchTab(tabName) {
         }, 100);
     } else if (tabName === 'timeseries' && !timeseriesChart) {
         initTimeseriesChart();
+    } else if (tabName === 'plot' && visualizationData) {
+        // Plotly 플롯 렌더링 (데이터가 있을 때만)
+        if (visualizationData.map_points && visualizationData.map_points.length > 0) {
+            renderPlotlyChart();
+        }
     }
 }
 
@@ -435,6 +442,167 @@ function updateVisualizationInfo() {
     const timeseriesLocation = document.getElementById('timeseriesLocation');
     if (timeseriesLocation) {
         timeseriesLocation.textContent = queryContext.site_name || queryContext.site_id || '-';
+    }
+
+    // Plotly 플롯 정보
+    const plotLocation = document.getElementById('plotLocation');
+    if (plotLocation) {
+        plotLocation.textContent = queryContext.site_name || queryContext.site_id || '-';
+    }
+}
+
+// Plotly 상세 플롯 렌더링 (B안 - 노트북 스타일)
+function renderPlotlyChart() {
+    const plotContainer = document.getElementById('plotContainer');
+    if (!plotContainer) return;
+
+    const mapPoints = visualizationData.map_points || [];
+    if (mapPoints.length === 0) {
+        console.warn('Plotly 플롯: map_points가 없습니다.');
+        return;
+    }
+
+    console.log('Plotly 플롯 렌더링 시작:', mapPoints);
+
+    // 값 범위 계산
+    const values = mapPoints.map(p => p.value).filter(v => v !== null && v !== undefined);
+    if (values.length === 0) {
+        console.warn('Plotly 플롯: 유효한 값이 없습니다.');
+        return;
+    }
+
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+
+    // Viridis 색상 스케일 (Plotly 내장)
+    const colorscale = 'Viridis';
+
+    // 산점도 데이터 준비
+    const x = mapPoints.map(p => p.lng);
+    const y = mapPoints.map(p => p.lat);
+    const z = mapPoints.map(p => p.value);
+
+    // Plotly 트레이스 생성
+    const trace = {
+        type: 'scatter',
+        mode: 'markers',
+        x: x,
+        y: y,
+        marker: {
+            size: 12,
+            color: z,
+            colorscale: colorscale,
+            showscale: true,
+            colorbar: {
+                title: {
+                    text: visualizationData.query_context?.variable || '유해남조류 세포수',
+                    font: { color: '#fff', size: 12 }
+                },
+                tickfont: { color: '#fff', size: 10 },
+                tickcolor: '#fff',
+                outlinewidth: 1,
+                outlinecolor: '#666'
+            },
+            line: {
+                color: '#fff',
+                width: 1
+            },
+            opacity: 0.8
+        },
+        text: mapPoints.map(p => `${p.name || p.site_id}<br>값: ${p.value !== null ? p.value.toFixed(2) : 'N/A'}`),
+        hovertemplate: '<b>%{text}</b><br>경도: %{x:.4f}<br>위도: %{y:.4f}<extra></extra>'
+    };
+
+    // 레이아웃 설정 (다크 테마, 노트북 스타일)
+    const layout = {
+        title: {
+            text: '녹조 예측 지도 (상세 플롯)',
+            font: { color: '#fff', size: 16 },
+            x: 0.5
+        },
+        xaxis: {
+            title: {
+                text: 'Longitude',
+                font: { color: '#fff', size: 12 }
+            },
+            gridcolor: '#333',
+            gridwidth: 1,
+            zeroline: false,
+            tickfont: { color: '#ccc', size: 10 },
+            linecolor: '#666',
+            linewidth: 1
+        },
+        yaxis: {
+            title: {
+                text: 'Latitude',
+                font: { color: '#fff', size: 12 }
+            },
+            gridcolor: '#333',
+            gridwidth: 1,
+            zeroline: false,
+            tickfont: { color: '#ccc', size: 10 },
+            linecolor: '#666',
+            linewidth: 1
+        },
+        plot_bgcolor: '#1a1a1a',
+        paper_bgcolor: '#1a1a1a',
+        font: { color: '#fff' },
+        margin: { l: 60, r: 20, t: 60, b: 60 },
+        showlegend: false
+    };
+
+    // Plotly 플롯 생성
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false
+    };
+
+    Plotly.newPlot(plotContainer, [trace], layout, config);
+    plotlyChart = plotContainer;
+
+    console.log('Plotly 플롯 렌더링 완료');
+}
+
+// PNG 다운로드 버튼 이벤트
+function setupDownloadButton() {
+    const downloadBtn = document.getElementById('downloadPngBtn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', async () => {
+            if (!visualizationData || !visualizationData.query_context) {
+                alert('다운로드할 데이터가 없습니다.');
+                return;
+            }
+
+            const queryContext = visualizationData.query_context;
+            const location = queryContext.site_name || queryContext.site_id;
+            const period = queryContext.period || {};
+            const targetDate = period.end ? period.end.split('T')[0] : new Date().toISOString().split('T')[0];
+            const variable = queryContext.variable || '유해남조류 세포수 (cells/㎖)';
+
+            try {
+                const url = `/api/visualizations/export-png?location=${encodeURIComponent(location)}&target_date=${targetDate}&variable=${encodeURIComponent(variable)}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`다운로드 실패: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = `prediction_${location}_${targetDate}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(downloadUrl);
+            } catch (e) {
+                console.error('PNG 다운로드 실패:', e);
+                alert(`다운로드 실패: ${e.message}`);
+            }
+        });
     }
 }
 
