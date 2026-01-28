@@ -482,71 +482,77 @@ function renderPlotlyChart() {
     const y = mapPoints.map(p => p.lat);
     const z = mapPoints.map(p => p.value);
 
-    // Plotly 트레이스 생성
+    // Plotly 트레이스 생성 (마커 크기 및 스타일 개선)
     const trace = {
         type: 'scatter',
         mode: 'markers',
         x: x,
         y: y,
         marker: {
-            size: 12,
+            size: mapPoints.length === 1 ? 20 : 15,  // 단일 포인트일 때 더 크게
             color: z,
             colorscale: colorscale,
             showscale: true,
             colorbar: {
                 title: {
                     text: visualizationData.query_context?.variable || '유해남조류 세포수',
-                    font: { color: '#fff', size: 12 }
+                    font: { color: '#333', size: 12 }
                 },
-                tickfont: { color: '#fff', size: 10 },
-                tickcolor: '#fff',
+                tickfont: { color: '#666', size: 10 },
+                tickcolor: '#666',
                 outlinewidth: 1,
-                outlinecolor: '#666'
+                outlinecolor: '#999',
+                len: 0.8,
+                thickness: 15
             },
             line: {
-                color: '#fff',
-                width: 1
+                color: '#333',
+                width: 2
             },
-            opacity: 0.8
+            opacity: 0.9,
+            sizemin: 10,
+            sizemax: 30
         },
         text: mapPoints.map(p => `${p.name || p.site_id}<br>값: ${p.value !== null ? p.value.toFixed(2) : 'N/A'}`),
         hovertemplate: '<b>%{text}</b><br>경도: %{x:.4f}<br>위도: %{y:.4f}<extra></extra>'
     };
 
-    // 레이아웃 설정 (다크 테마, 노트북 스타일)
+    // 레이아웃 설정 (밝은 테마로 변경 - 가독성 향상)
     const layout = {
         title: {
             text: '녹조 예측 지도 (상세 플롯)',
-            font: { color: '#fff', size: 16 },
+            font: { color: '#333', size: 16 },
             x: 0.5
         },
         xaxis: {
             title: {
                 text: 'Longitude',
-                font: { color: '#fff', size: 12 }
+                font: { color: '#333', size: 12 }
             },
-            gridcolor: '#333',
+            gridcolor: '#e0e0e0',
             gridwidth: 1,
             zeroline: false,
-            tickfont: { color: '#ccc', size: 10 },
-            linecolor: '#666',
-            linewidth: 1
+            tickfont: { color: '#666', size: 10 },
+            linecolor: '#999',
+            linewidth: 1,
+            showgrid: true
         },
         yaxis: {
             title: {
                 text: 'Latitude',
-                font: { color: '#fff', size: 12 }
+                font: { color: '#333', size: 12 }
             },
-            gridcolor: '#333',
+            gridcolor: '#e0e0e0',
             gridwidth: 1,
             zeroline: false,
-            tickfont: { color: '#ccc', size: 10 },
-            linecolor: '#666',
-            linewidth: 1
+            tickfont: { color: '#666', size: 10 },
+            linecolor: '#999',
+            linewidth: 1,
+            showgrid: true
         },
-        plot_bgcolor: '#1a1a1a',
-        paper_bgcolor: '#1a1a1a',
-        font: { color: '#fff' },
+        plot_bgcolor: '#ffffff',
+        paper_bgcolor: '#ffffff',
+        font: { color: '#333' },
         margin: { l: 60, r: 20, t: 60, b: 60 },
         showlegend: false
     };
@@ -559,8 +565,13 @@ function renderPlotlyChart() {
         displaylogo: false
     };
 
-    Plotly.newPlot(plotContainer, [trace], layout, config);
-    plotlyChart = plotContainer;
+    // 기존 플롯이 있으면 업데이트, 없으면 새로 생성
+    if (plotlyChart) {
+        Plotly.react(plotContainer, [trace], layout, config);
+    } else {
+        Plotly.newPlot(plotContainer, [trace], layout, config);
+        plotlyChart = plotContainer;
+    }
 
     console.log('Plotly 플롯 렌더링 완료');
 }
@@ -583,10 +594,14 @@ function setupDownloadButton() {
 
             try {
                 const url = `/api/visualizations/export-png?location=${encodeURIComponent(location)}&target_date=${targetDate}&variable=${encodeURIComponent(variable)}`;
+                console.log('PNG 다운로드 요청:', url);
                 const response = await fetch(url);
                 
                 if (!response.ok) {
-                    throw new Error(`다운로드 실패: ${response.status}`);
+                    // 에러 응답의 상세 내용 가져오기
+                    const errorText = await response.text();
+                    console.error('서버 에러 응답:', errorText);
+                    throw new Error(`다운로드 실패: ${response.status} - ${errorText}`);
                 }
 
                 const blob = await response.blob();

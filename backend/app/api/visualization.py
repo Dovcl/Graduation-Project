@@ -10,7 +10,22 @@ import io
 import matplotlib
 matplotlib.use('Agg')  # 백엔드에서 사용 (GUI 없음)
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import numpy as np
+import platform
+
+# 한글 폰트 설정 (경고 무시하고 진행)
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
+
+if platform.system() == 'Darwin':  # macOS
+    plt.rcParams['font.family'] = 'AppleGothic'
+elif platform.system() == 'Windows':
+    plt.rcParams['font.family'] = 'Malgun Gothic'
+else:  # Linux
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+    
+plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,11 +48,19 @@ async def export_visualization_png(
     노트북과 동일한 스타일의 시계열 플롯 생성
     """
     try:
+        print(f"PNG 생성 요청: location={location}, target_date={target_date}, variable={variable}")
+        
         # 날짜 파싱
         if target_date:
-            pred_date = datetime.fromisoformat(target_date)
+            try:
+                pred_date = datetime.fromisoformat(target_date)
+            except ValueError:
+                # YYYY-MM-DD 형식으로 파싱 시도
+                pred_date = datetime.strptime(target_date, "%Y-%m-%d")
         else:
             pred_date = datetime.now()
+        
+        print(f"예측 날짜: {pred_date}")
         
         # 예측 수행
         prediction_service = PredictionService()
@@ -46,6 +69,8 @@ async def export_visualization_png(
             target_date=pred_date,
             db=db
         )
+        
+        print(f"예측 결과: success={prediction_result.get('success') if prediction_result else False}")
         
         if not prediction_result or not prediction_result.get("success"):
             raise HTTPException(status_code=400, detail="예측 실패")
@@ -57,6 +82,8 @@ async def export_visualization_png(
         timeseries_data = get_timeseries_data(
             location, variable, start_date, end_date, db, limit=52
         )
+        
+        print(f"시계열 데이터: labels={len(timeseries_data.get('labels', []))}, observed={len(timeseries_data.get('observed', []))}")
         
         # 예측값 추가
         predictions = prediction_result.get("predictions", {})
@@ -84,15 +111,31 @@ async def export_visualization_png(
         # 날짜 인덱스
         time_index = np.arange(len(timeseries_data["labels"]))
         
-        # 관측값 플롯 (파란색)
+        # 관측값 플롯 (파란색) - None 값 제외
         observed = timeseries_data["observed"]
-        ax.plot(time_index, observed, 'o-', color='#4A90E2', 
-                label='관측값', linewidth=2, markersize=4, alpha=0.7)
+        observed_valid = [(i, v) for i, v in enumerate(observed) if v is not None]
+        if observed_valid:
+            obs_indices = [x[0] for x in observed_valid]
+            obs_values = [x[1] for x in observed_valid]
+            try:
+                ax.plot(obs_indices, obs_values, 'o-', color='#4A90E2', 
+                        label='관측값', linewidth=2, markersize=4, alpha=0.7)
+            except:
+                ax.plot(obs_indices, obs_values, 'o-', color='#4A90E2', 
+                        label='Observed', linewidth=2, markersize=4, alpha=0.7)
         
-        # 예측값 플롯 (빨간색, 점선)
+        # 예측값 플롯 (빨간색, 점선) - None 값 제외
         predicted = timeseries_data["predicted"]
-        ax.plot(time_index, predicted, 's--', color='#E74C3C', 
-                label='예측값', linewidth=2, markersize=4, alpha=0.7)
+        predicted_valid = [(i, v) for i, v in enumerate(predicted) if v is not None]
+        if predicted_valid:
+            pred_indices = [x[0] for x in predicted_valid]
+            pred_values = [x[1] for x in predicted_valid]
+            try:
+                ax.plot(pred_indices, pred_values, 's--', color='#E74C3C', 
+                        label='예측값', linewidth=2, markersize=4, alpha=0.7)
+            except:
+                ax.plot(pred_indices, pred_values, 's--', color='#E74C3C', 
+                        label='Predicted', linewidth=2, markersize=4, alpha=0.7)
         
         # 축 레이블 및 제목
         ax.set_xlabel('날짜', fontsize=12)
@@ -128,15 +171,22 @@ async def export_visualization_png(
         buffer.seek(0)
         plt.close(fig)
         
-        # 응답 반환
+        # 응답 반환 (한글 파일명 인코딩 문제 해결)
+        from urllib.parse import quote
+        safe_filename = f"prediction_{pred_date.strftime('%Y%m%d')}.png"
+        encoded_filename = quote(safe_filename)
+        
         return Response(
             content=buffer.getvalue(),
             media_type="image/png",
             headers={
-                "Content-Disposition": f'attachment; filename="prediction_{location}_{pred_date.strftime("%Y%m%d")}.png"'
+                "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}'
             }
         )
     
     except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"PNG 생성 오류: {error_detail}")
         raise HTTPException(status_code=500, detail=f"이미지 생성 실패: {str(e)}")
 
