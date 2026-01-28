@@ -65,10 +65,10 @@ function setupSidebar() {
         `;
     });
 
-    // 시각화 버튼 (나중에 구현)
+    // 시각화 버튼
     visualizationBtn.addEventListener('click', () => {
-        console.log('시각화 탭 클릭');
-        // 나중에 시각화 모달 또는 패널 열기
+        // 시각화 페이지로 이동
+        window.location.href = 'visualization.html';
     });
 }
 
@@ -112,6 +112,30 @@ async function handleSendMessage() {
             role: 'assistant',
             content: response.answer
         });
+
+        // 시각화 데이터 저장
+        console.log('응답 데이터 확인:', response);
+        if (response.visualizations) {
+            console.log('시각화 데이터 발견:', response.visualizations);
+            // Pydantic 모델이 dict로 변환되어야 함
+            const vizData = response.visualizations;
+            sessionStorage.setItem('visualizationData', JSON.stringify(vizData));
+            console.log('시각화 데이터 저장 완료:', vizData);
+            
+            // 시각화 버튼 활성화 표시
+            const vizBtn = document.getElementById('visualizationBtn');
+            if (vizBtn) {
+                if (vizData.map_points && vizData.map_points.length > 0) {
+                    vizBtn.classList.add('has-data');
+                    vizBtn.title = '시각화 (데이터 있음)';
+                    console.log('시각화 버튼 활성화');
+                } else {
+                    console.warn('시각화 데이터에 map_points가 없습니다:', vizData);
+                }
+            }
+        } else {
+            console.log('응답에 시각화 데이터가 없습니다.');
+        }
 
         // 제안 표시 (나중에 구현)
         if (response.suggestions && response.suggestions.length > 0) {

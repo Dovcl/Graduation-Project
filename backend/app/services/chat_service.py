@@ -13,6 +13,7 @@ from app.services.rag_service import RAGService
 from app.services.rag_service_langchain import RAGServiceLangChain
 from app.services.data_service import DataService
 from app.services.prediction_service import PredictionService
+from app.services.viz_service import VisualizationService
 from app.database import SessionLocal
 
 
@@ -25,6 +26,7 @@ class ChatService:
         self.rag_service_langchain = RAGServiceLangChain()  # LangChain RAG
         self.data_service = DataService()
         self.prediction_service = PredictionService()
+        self.viz_service = VisualizationService()
     
     async def process_message(
         self, 
@@ -114,10 +116,41 @@ class ChatService:
                 message, rag_docs, env_data, prediction_result
             )
             
+            # 8. 시각화 데이터 생성 (예측 결과가 있을 때만)
+            visualizations = None
+            if prediction_result and prediction_result.get("success"):
+                location = prediction_info.get("location") or prediction_result.get("location")
+                target_date = prediction_info.get("target_date")
+                variable = "유해남조류 세포수 (cells/㎖)"  # 기본 변수
+                
+                # 예측 결과에서 변수명 추출 (첫 번째 변수 사용)
+                predictions = prediction_result.get("predictions", {})
+                if predictions:
+                    variable = list(predictions.keys())[0]
+                
+                try:
+                    visualizations = self.viz_service.build_visualization_data(
+                        prediction_result=prediction_result,
+                        location=location,
+                        target_date=target_date,
+                        variable=variable,
+                        db=db
+                    )
+                    if visualizations:
+                        print(f"✓ 시각화 데이터 생성 완료: type={visualizations.type}, map_points={len(visualizations.map_points) if visualizations.map_points else 0}, timeseries={visualizations.timeseries is not None}")
+                    else:
+                        print("⚠ 시각화 데이터 생성 실패: None 반환")
+                except Exception as e:
+                    print(f"❌ 시각화 데이터 생성 중 오류: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    visualizations = None
+            
             return ChatResponse(
                 answer=answer,
                 suggestions=suggestions,
                 data=env_data if env_data.get("results") else None,
+                visualizations=visualizations,
                 metadata={
                     "rag_documents_count": len(rag_docs),
                     "data_results_count": env_data.get("statistics", {}).get("count", 0),
