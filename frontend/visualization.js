@@ -12,6 +12,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     setupDownloadButton();
     loadVisualizationData();
+    
+    // 초기 로드 시 지도 탭이 활성화되어 있으면 지도 초기화
+    const mapPanel = document.getElementById('mapPanel');
+    if (mapPanel && mapPanel.classList.contains('active')) {
+        setTimeout(() => {
+            if (!map) {
+                initMap();
+            }
+        }, 100);
+    }
 });
 
 // 이벤트 리스너 설정
@@ -47,23 +57,29 @@ function switchTab(tabName) {
 
     // 탭별 초기화
     if (tabName === 'map') {
-        if (!map) {
-            initMap();
-            // 지도 초기화 후 데이터가 있으면 렌더링
-            setTimeout(() => {
-                if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
-                    renderMap();
-                }
-            }, 300);  // 지도 컨테이너가 준비될 때까지 대기
-        } else {
-            // 지도 크기 조정 (탭 전환 시 필요)
-            setTimeout(() => {
-                map.invalidateSize();
-                // 데이터가 있으면 다시 렌더링
-                if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
-                    renderMap();
-                }
-            }, 100);
+        // 지도 패널이 활성화된 후에 지도 초기화
+        const mapPanel = document.getElementById('mapPanel');
+        if (mapPanel && mapPanel.classList.contains('active')) {
+            if (!map) {
+                initMap();
+                // 지도 초기화 후 데이터가 있으면 렌더링
+                setTimeout(() => {
+                    if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                        renderMap();
+                    }
+                }, 500);  // 지도 컨테이너가 준비될 때까지 대기
+            } else {
+                // 지도 크기 조정 (탭 전환 시 필요)
+                setTimeout(() => {
+                    if (map) {
+                        map.invalidateSize();
+                        // 데이터가 있으면 다시 렌더링
+                        if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                            renderMap();
+                        }
+                    }
+                }, 200);
+            }
         }
     } else if (tabName === 'timeseries' && !timeseriesChart) {
         initTimeseriesChart();
@@ -127,16 +143,20 @@ function renderVisualizations() {
         return;
     }
 
-    // 지도 렌더링 (지도가 이미 초기화되어 있으면 바로 렌더링)
-    if (visualizationData.map_points && visualizationData.map_points.length > 0) {
-        if (map) {
-            renderMap();
-        } else {
-            // 지도가 없으면 초기화 후 렌더링
-            initMap();
-            setTimeout(() => {
+    // 지도 렌더링 (지도 탭이 활성화되어 있을 때만)
+    const mapPanel = document.getElementById('mapPanel');
+    if (mapPanel && mapPanel.classList.contains('active')) {
+        if (visualizationData.map_points && visualizationData.map_points.length > 0) {
+            if (!map) {
+                // 지도가 없으면 초기화 후 렌더링
+                initMap();
+                setTimeout(() => {
+                    renderMap();
+                }, 500);
+            } else {
+                // 지도가 있으면 바로 렌더링
                 renderMap();
-            }, 300);
+            }
         }
     }
 
@@ -151,6 +171,18 @@ function renderVisualizations() {
 
 // 지도 초기화 및 렌더링
 function initMap() {
+    const mapContainer = document.getElementById('mapContainer');
+    if (!mapContainer) {
+        console.error('mapContainer 요소를 찾을 수 없습니다.');
+        return;
+    }
+
+    // 이미 지도가 있으면 제거
+    if (map) {
+        map.remove();
+        map = null;
+    }
+
     // Leaflet 지도 생성 (한국 중심)
     map = L.map('mapContainer', {
         center: [36.5, 127.5],  // 한국 중심 좌표
@@ -163,6 +195,13 @@ function initMap() {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 19
     }).addTo(map);
+
+    // 지도 크기 조정 (컨테이너가 보일 때)
+    setTimeout(() => {
+        if (map) {
+            map.invalidateSize();
+        }
+    }, 100);
 
     // GeoJSON 레이어 로드
     loadGeoJSONLayers();
