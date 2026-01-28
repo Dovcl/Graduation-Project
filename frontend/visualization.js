@@ -89,10 +89,18 @@ function switchTab(tabName) {
         }
     } else if (tabName === 'timeseries' && !timeseriesChart) {
         initTimeseriesChart();
-    } else if (tabName === 'plot' && visualizationData) {
+    } else if (tabName === 'plot') {
         // Plotly 플롯 렌더링 (데이터가 있을 때만)
-        if (visualizationData.map_points && visualizationData.map_points.length > 0) {
-            renderPlotlyChart();
+        const plotPanel = document.getElementById('plotPanel');
+        if (plotPanel && plotPanel.classList.contains('active')) {
+            if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                console.log('상세 플롯 탭 클릭: Plotly 플롯 렌더링 시작');
+                setTimeout(() => {
+                    renderPlotlyChart();
+                }, 100);  // 패널이 활성화될 때까지 대기
+            } else {
+                console.warn('상세 플롯: map_points 데이터가 없습니다.');
+            }
         }
     }
 }
@@ -547,7 +555,15 @@ function updateVisualizationInfo() {
 // Plotly 상세 플롯 렌더링 (B안 - 노트북 스타일)
 function renderPlotlyChart() {
     const plotContainer = document.getElementById('plotContainer');
-    if (!plotContainer) return;
+    if (!plotContainer) {
+        console.error('plotContainer 요소를 찾을 수 없습니다.');
+        return;
+    }
+
+    if (!visualizationData) {
+        console.warn('Plotly 플롯: visualizationData가 없습니다.');
+        return;
+    }
 
     const mapPoints = visualizationData.map_points || [];
     if (mapPoints.length === 0) {
@@ -555,7 +571,8 @@ function renderPlotlyChart() {
         return;
     }
 
-    console.log('Plotly 플롯 렌더링 시작:', mapPoints);
+    console.log('Plotly 플롯 렌더링 시작, 포인트 개수:', mapPoints.length);
+    console.log('Plotly 플롯 데이터:', JSON.stringify(mapPoints, null, 2));
 
     // 값 범위 계산
     const values = mapPoints.map(p => p.value).filter(v => v !== null && v !== undefined);
@@ -659,14 +676,23 @@ function renderPlotlyChart() {
     };
 
     // 기존 플롯이 있으면 업데이트, 없으면 새로 생성
-    if (plotlyChart) {
-        Plotly.react(plotContainer, [trace], layout, config);
-    } else {
-        Plotly.newPlot(plotContainer, [trace], layout, config);
-        plotlyChart = plotContainer;
+    try {
+        if (plotlyChart && plotlyChart === plotContainer) {
+            console.log('기존 Plotly 플롯 업데이트');
+            Plotly.react(plotContainer, [trace], layout, config);
+        } else {
+            console.log('새 Plotly 플롯 생성');
+            // 기존 플롯이 있으면 제거
+            if (plotlyChart) {
+                Plotly.purge(plotlyChart);
+            }
+            Plotly.newPlot(plotContainer, [trace], layout, config);
+            plotlyChart = plotContainer;
+        }
+        console.log('Plotly 플롯 렌더링 완료');
+    } catch (error) {
+        console.error('Plotly 플롯 렌더링 오류:', error);
     }
-
-    console.log('Plotly 플롯 렌더링 완료');
 }
 
 // PNG 다운로드 버튼 이벤트
