@@ -46,13 +46,25 @@ function switchTab(tabName) {
     });
 
     // 탭별 초기화
-    if (tabName === 'map' && !map) {
-        initMap();
-    } else if (tabName === 'map' && map) {
-        // 지도 크기 조정 (탭 전환 시 필요)
-        setTimeout(() => {
-            map.invalidateSize();
-        }, 100);
+    if (tabName === 'map') {
+        if (!map) {
+            initMap();
+            // 지도 초기화 후 데이터가 있으면 렌더링
+            setTimeout(() => {
+                if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                    renderMap();
+                }
+            }, 300);  // 지도 컨테이너가 준비될 때까지 대기
+        } else {
+            // 지도 크기 조정 (탭 전환 시 필요)
+            setTimeout(() => {
+                map.invalidateSize();
+                // 데이터가 있으면 다시 렌더링
+                if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                    renderMap();
+                }
+            }, 100);
+        }
     } else if (tabName === 'timeseries' && !timeseriesChart) {
         initTimeseriesChart();
     } else if (tabName === 'plot' && visualizationData) {
@@ -115,9 +127,17 @@ function renderVisualizations() {
         return;
     }
 
-    // 지도 렌더링
+    // 지도 렌더링 (지도가 이미 초기화되어 있으면 바로 렌더링)
     if (visualizationData.map_points && visualizationData.map_points.length > 0) {
-        renderMap();
+        if (map) {
+            renderMap();
+        } else {
+            // 지도가 없으면 초기화 후 렌더링
+            initMap();
+            setTimeout(() => {
+                renderMap();
+            }, 300);
+        }
     }
 
     // 시계열 차트 렌더링
@@ -593,6 +613,26 @@ function setupDownloadButton() {
             const variable = queryContext.variable || '유해남조류 세포수 (cells/㎖)';
 
             try {
+                // 상세 플롯 탭에서는 Plotly 플롯을 PNG로 다운로드
+                // 시계열 탭에서는 서버에서 생성한 시계열 그래프를 다운로드
+                const currentTab = document.querySelector('.viz-tab.active')?.dataset.tab;
+                
+                if (currentTab === 'plot' && plotlyChart) {
+                    // Plotly 플롯을 PNG로 다운로드
+                    const plotlyImg = await Plotly.toImage(plotlyChart, { format: 'png', width: 1200, height: 800 });
+                    const blob = await fetch(plotlyImg).then(r => r.blob());
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    a.download = `plot_${location}_${targetDate}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(downloadUrl);
+                    return;
+                }
+                
+                // 시계열 그래프 다운로드 (서버에서 생성)
                 const url = `/api/visualizations/export-png?location=${encodeURIComponent(location)}&target_date=${targetDate}&variable=${encodeURIComponent(variable)}`;
                 console.log('PNG 다운로드 요청:', url);
                 const response = await fetch(url);
