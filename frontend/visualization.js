@@ -334,15 +334,24 @@ function renderMap() {
         
         // 마커 클릭 시 팝업 자동 열기
         marker.openPopup();
-
-        // 지도 범위 조정
+    });
+    
+    console.log(`총 ${addedCount}개의 마커가 추가되었습니다.`);
+    
+    // 지도 범위 조정 (모든 마커 추가 후 한 번만)
+    if (addedCount > 0) {
         if (mapPoints.length === 1) {
+            const point = mapPoints[0];
             map.setView([point.lat, point.lng], 11);  // 줌 레벨 증가
+            console.log(`단일 포인트로 지도 중심 설정: [${point.lat}, ${point.lng}]`);
         } else {
             const bounds = L.latLngBounds(mapPoints.map(p => [p.lat, p.lng]));
             map.fitBounds(bounds, { padding: [50, 50] });
+            console.log('여러 포인트로 지도 범위 조정');
         }
-    });
+    } else {
+        console.warn('추가된 마커가 없어서 지도 범위를 조정하지 않습니다.');
+    }
 }
 
 // 값에 따른 색상 계산 (Viridis 색상 스케일)
