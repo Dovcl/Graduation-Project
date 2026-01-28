@@ -61,13 +61,18 @@ function switchTab(tabName) {
         const mapPanel = document.getElementById('mapPanel');
         if (mapPanel && mapPanel.classList.contains('active')) {
             if (!map) {
+                console.log('지도 탭 클릭: 지도 초기화 시작');
                 initMap();
                 // 지도 초기화 후 데이터가 있으면 렌더링
                 setTimeout(() => {
+                    console.log('지도 초기화 완료, 렌더링 시작');
                     if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                        console.log('map_points 데이터:', visualizationData.map_points);
                         renderMap();
+                    } else {
+                        console.warn('map_points 데이터가 없습니다.');
                     }
-                }, 500);  // 지도 컨테이너가 준비될 때까지 대기
+                }, 600);  // 지도 컨테이너가 준비될 때까지 대기
             } else {
                 // 지도 크기 조정 (탭 전환 시 필요)
                 setTimeout(() => {
@@ -75,6 +80,7 @@ function switchTab(tabName) {
                         map.invalidateSize();
                         // 데이터가 있으면 다시 렌더링
                         if (visualizationData && visualizationData.map_points && visualizationData.map_points.length > 0) {
+                            console.log('지도 크기 조정 후 렌더링');
                             renderMap();
                         }
                     }
@@ -147,17 +153,25 @@ function renderVisualizations() {
     const mapPanel = document.getElementById('mapPanel');
     if (mapPanel && mapPanel.classList.contains('active')) {
         if (visualizationData.map_points && visualizationData.map_points.length > 0) {
+            console.log('renderVisualizations: 지도 렌더링 시작, map_points:', visualizationData.map_points);
             if (!map) {
                 // 지도가 없으면 초기화 후 렌더링
+                console.log('지도가 없어서 초기화합니다.');
                 initMap();
                 setTimeout(() => {
+                    console.log('지도 초기화 완료, 렌더링 시작');
                     renderMap();
-                }, 500);
+                }, 600);
             } else {
                 // 지도가 있으면 바로 렌더링
+                console.log('지도가 이미 있으므로 바로 렌더링');
                 renderMap();
             }
+        } else {
+            console.warn('map_points 데이터가 없습니다.');
         }
+    } else {
+        console.log('지도 탭이 활성화되지 않았습니다.');
     }
 
     // 시계열 차트 렌더링
@@ -244,10 +258,16 @@ async function loadGeoJSONLayers() {
 // 지도에 예측 포인트 렌더링
 function renderMap() {
     if (!map) {
+        console.log('지도가 없어서 초기화합니다.');
         initMap();
+        // 지도 초기화 후 렌더링 (타이밍 문제 해결)
+        setTimeout(() => {
+            renderMap();
+        }, 300);
+        return;
     }
 
-    // 기존 마커 제거
+    // 기존 마커 제거 (GeoJSON 레이어는 제외)
     map.eachLayer(layer => {
         if (layer instanceof L.CircleMarker || layer instanceof L.Marker) {
             map.removeLayer(layer);
@@ -260,7 +280,8 @@ function renderMap() {
         return;
     }
     
-    console.log('지도 포인트 렌더링:', mapPoints);
+    console.log('지도 포인트 렌더링 시작, 포인트 개수:', mapPoints.length);
+    console.log('지도 포인트 데이터:', JSON.stringify(mapPoints, null, 2));
 
     // 값 범위 계산 (컬러바용)
     const values = mapPoints.map(p => p.value).filter(v => v !== null && v !== undefined);
@@ -277,7 +298,9 @@ function renderMap() {
     }
 
     // 포인트 추가
-    mapPoints.forEach(point => {
+    let addedCount = 0;
+    mapPoints.forEach((point, index) => {
+        console.log(`포인트 ${index} 처리:`, point);
         if (!point.lat || !point.lng) {
             console.warn('좌표가 없는 포인트:', point);
             return;
@@ -286,6 +309,7 @@ function renderMap() {
         const color = getColorByValue(point.value, minValue, maxValue);
         const radius = 10;  // 크기 증가
 
+        console.log(`마커 추가: lat=${point.lat}, lng=${point.lng}, color=${color}, value=${point.value}`);
         const marker = L.circleMarker([point.lat, point.lng], {
             radius: radius,
             fillColor: color,
@@ -293,6 +317,7 @@ function renderMap() {
             weight: 2,
             fillOpacity: 0.9
         }).addTo(map);
+        addedCount++;
 
         // 팝업 추가
         const popupContent = `
