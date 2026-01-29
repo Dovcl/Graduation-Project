@@ -66,10 +66,15 @@ class APIClient {
 
 // 싱글톤 인스턴스 생성 및 전역 등록
 (function() {
-    const apiClient = new APIClient();
-    window.apiClient = apiClient;
-    
-    // 초기화 확인 로그
-    console.log('API 클라이언트 초기화 완료:', apiClient.baseURL);
+    // 이미 초기화되어 있으면 재초기화하지 않음
+    if (!window.apiClient) {
+        const apiClient = new APIClient();
+        window.apiClient = apiClient;
+        
+        // 초기화 확인 로그
+        console.log('API 클라이언트 초기화 완료:', apiClient.baseURL);
+    } else {
+        console.log('API 클라이언트 이미 초기화됨:', window.apiClient.baseURL);
+    }
 })();
 

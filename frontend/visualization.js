@@ -38,9 +38,43 @@ function setupEventListeners() {
     const backToChatBtn = document.getElementById('backToChatBtn');
     if (backToChatBtn) {
         backToChatBtn.addEventListener('click', () => {
+            console.log('=== 채팅으로 돌아가기 ===');
+            
+            // 현재 sessionStorage에 히스토리가 있는지 확인
+            const currentHistory = sessionStorage.getItem('conversationHistory');
+            if (currentHistory) {
+                console.log(`✓ 히스토리 확인: ${currentHistory.length} bytes 저장됨`);
+                try {
+                    const parsed = JSON.parse(currentHistory);
+                    console.log(`  히스토리 개수: ${parsed.length}개 메시지`);
+                } catch (e) {
+                    console.error('  히스토리 파싱 실패:', e);
+                }
+            } else {
+                console.warn('⚠ sessionStorage에 히스토리가 없습니다!');
+            }
+            
+            // 페이지 이동
+            console.log('채팅 페이지로 이동');
             window.location.href = 'index.html';
         });
     }
+    
+    // 페이지 로드 시 히스토리 확인
+    window.addEventListener('load', () => {
+        const currentHistory = sessionStorage.getItem('conversationHistory');
+        console.log('시각화 페이지 로드: 히스토리 확인');
+        if (currentHistory) {
+            try {
+                const parsed = JSON.parse(currentHistory);
+                console.log(`  ✓ 히스토리 있음: ${parsed.length}개 메시지`);
+            } catch (e) {
+                console.error('  히스토리 파싱 실패:', e);
+            }
+        } else {
+            console.log('  히스토리 없음 (정상: 아직 메시지를 보내지 않았을 수 있음)');
+        }
+    });
 }
 
 // 탭 전환

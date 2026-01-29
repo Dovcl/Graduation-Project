@@ -301,12 +301,11 @@ class DataService:
             return mapping.wq_location
         
         # 역방향 매칭 시도 (algae_location이 location을 포함하는 경우)
-        mapping = db.query(LocationMapping).filter(
-            algae_location.contains(LocationMapping.algae_location)
-        ).first()
-        
-        if mapping:
-            return mapping.wq_location
+        # Python 레벨에서 처리 (SQLAlchemy에서는 직접 불가능)
+        all_mappings = db.query(LocationMapping).all()
+        for mapping in all_mappings:
+            if mapping.algae_location and algae_location and mapping.algae_location in algae_location:
+                return mapping.wq_location
         
         # 매칭되지 않으면 None 반환 (기존 동작 유지)
         return None
