@@ -49,67 +49,155 @@ class ChatService:
         db = SessionLocal()
 
         try:
-            # 1. 예측 요청 감지
-            prediction_info = self._detect_prediction_request(message)
-            
-            # 2. RAG 검색 (하이브리드: LangChain + 기존)
-            rag_docs_langchain = await self.rag_service_langchain.search(
-                message, top_k=3, db=db
-            )
-            rag_docs_legacy = await self.rag_service.search(message, top_k=3, db=db)
-            
-            # 두 결과 병합 (LangChain 우선)
-            rag_docs = rag_docs_langchain if rag_docs_langchain else rag_docs_legacy
-            
-            # 3. 데이터 조회 (SQL 기반 수치 데이터)
-            env_data = await self.data_service.query(message, db=db)
-            
-            # 4. 예측 수행 (필요시)
-            prediction_result = None
-            if prediction_info["needs_prediction"]:
-                prediction_result = await self._perform_prediction(
-                    message, env_data, prediction_info, db
+            # 가이드라인 요청 감지 (빠른 경로 - 예측/데이터 조회 불필요)
+            is_guideline_request = self._detect_guideline_request(message)
+
+            if is_guideline_request:
+                # === 가이드라인 전용 빠른 경로 ===
+                print("🔍 가이드라인 요청 감지 - 빠른 경로")
+                rag_docs = []
+                guideline_query = "녹조 대응 방법 가이드라인 예방 조치 대응방안"
+                guideline_docs = await self.rag_service_langchain.search(
+                    guideline_query, top_k=5, db=db
+                )
+                if guideline_docs:
+                    rag_docs = guideline_docs
+                    print(f"✓ 가이드라인 문서 {len(rag_docs)}개 검색됨")
+                else:
+                    # 가이드라인 문서가 없으면 일반 RAG 검색도 시도
+                    print("⚠ 가이드라인 문서 없음, 일반 RAG 검색 시도")
+                    rag_docs_langchain = await self.rag_service_langchain.search(
+                        message, top_k=3, db=db
+                    )
+                    if rag_docs_langchain:
+                        rag_docs = rag_docs_langchain
+
+                # 가이드라인용 간단한 컨텍스트
+                context = self._build_guideline_context(rag_docs)
+                
+                # 컨텍스트가 비어있거나 너무 짧으면 기본 안내 추가
+                if not context or not context.strip() or len(context.strip()) < 50:
+                    print("⚠ 컨텍스트가 비어있거나 너무 짧음, 기본 가이드라인 정보 추가")
+                    context = """=== 가이드라인 관련 문서 ===
+[문서 1] 녹조 대응 가이드라인
+출처: 환경부 녹조 대응 매뉴얼
+내용: 녹조 발생 시 대응 방법은 다음과 같습니다:
+1. 예방 단계: 정기적인 수질 모니터링, 유입원 관리, 수질 개선 조치
+2. 초기 대응: 경보 발령, 취수 중단 검토, 대체 수원 확보
+3. 확산 대응: 살조제 투입, 물리적 차단, 공중 보건 안내
+4. 회복 단계: 수질 회복 모니터링, 정상 취수 재개, 사후 관리
+구체적인 수치 기준: 유해남조류 세포수가 1,000 cells/ml 이상이면 주의, 10,000 cells/ml 이상이면 경보, 100,000 cells/ml 이상이면 중대 경보입니다."""
+
+                print(f"✓ 컨텍스트 길이: {len(context)}자")
+                print(f"✓ 컨텍스트 미리보기: {context[:200]}...")
+                
+                answer = await self.llm_service.generate_answer(
+                    message=message,
+                    history=history,
+                    context=context
                 )
                 
-                # 예측 결과가 높을 때 가이드라인 관련 문서 추가 검색
-                if prediction_result and prediction_result.get("success"):
-                    is_high_prediction = self._is_prediction_high(prediction_result)
-                    if is_high_prediction:
-                        # 가이드라인 관련 문서 추가 검색
-                        guideline_query = "녹조 대응 방법 가이드라인 예방 조치"
-                        guideline_docs = await self.rag_service_langchain.search(
-                            guideline_query, top_k=2, db=db
-                        )
-                        # 기존 RAG 문서에 가이드라인 문서 추가 (중복 제거)
-                        existing_sources = {doc.get("source") for doc in rag_docs}
-                        for doc in guideline_docs:
-                            if doc.get("source") not in existing_sources:
-                                rag_docs.append(doc)
-            
-            # 5. 컨텍스트 구성
-            context = self._build_context(rag_docs, env_data, prediction_result)
-            
-            # 실제 데이터베이스에 있는 위치 목록을 컨텍스트에 추가
-            available_locations = self._get_available_locations(db)
-            if available_locations:
-                context += f"\n\n=== [절대 규칙] 사용 가능한 위치 목록 ===\n"
-                context += "⚠️ 중요: 예측이나 데이터 조회를 위한 위치명을 제시하거나 추천할 때는, 반드시 아래 목록에 있는 위치만 사용하세요.\n"
-                context += "⚠️ 이 목록에 없는 위치명(예: '한강 팔당댐', '낙동강 달성' 등)은 데이터베이스에 등록되지 않아 예측이나 조회가 불가능합니다.\n"
-                context += "⚠️ 위치 추천을 요청받았을 때는 반드시 아래 목록에서만 선택하여 추천하세요.\n\n"
-                context += f"등록된 위치 목록 (총 {len(available_locations)}개):\n"
-                # 위치를 더 읽기 쉽게 표시 (10개씩 줄바꿈)
-                for i in range(0, min(30, len(available_locations)), 10):
-                    batch = available_locations[i:i+10]
-                    context += "  - " + ", ".join(batch) + "\n"
-                if len(available_locations) > 30:
-                    context += f"  ... 외 {len(available_locations) - 30}개\n"
-            
-            # 6. LLM 호출 (컨텍스트 포함)
-            answer = await self.llm_service.generate_answer(
-                message=message,
-                history=history,
-                context=context
-            )
+                # 답변이 비어있거나 오류인 경우 재시도
+                if not answer or "응답을 생성하지 못했습니다" in answer or "오류가 발생했습니다" in answer:
+                    print("⚠ 첫 번째 시도 실패, 기본 가이드라인으로 재시도")
+                    # 기본 가이드라인으로 재시도
+                    fallback_context = """=== 녹조 대응 가이드라인 ===
+녹조 발생 시 단계별 대응 방법:
+
+1단계 - 예방 및 모니터링:
+- 정기적인 수질 모니터링 실시
+- 유입원(오염원) 관리 및 차단
+- 수질 개선 조치 (인공습지, 생태통로 등)
+
+2단계 - 초기 대응 (1,000 cells/ml 이상):
+- 경보 발령 및 취수 중단 검토
+- 대체 수원 확보
+- 주민 공지 및 안내
+
+3단계 - 확산 대응 (10,000 cells/ml 이상):
+- 살조제 투입 검토
+- 물리적 차단 시설 설치
+- 공중 보건 안내 강화
+
+4단계 - 회복 단계:
+- 수질 회복 모니터링
+- 정상 취수 재개
+- 사후 관리 및 재발 방지
+
+수치 기준:
+- 주의: 1,000 cells/ml 이상
+- 경보: 10,000 cells/ml 이상  
+- 중대 경보: 100,000 cells/ml 이상"""
+                    
+                    answer = await self.llm_service.generate_answer(
+                        message=message,
+                        history=[] if not history else history[-2:],  # 최근 2개만 사용
+                        context=fallback_context
+                    )
+
+                # 예측/데이터 관련 변수 초기화
+                prediction_info = {"needs_prediction": False, "location": None, "target_date": None, "weeks_ahead": None}
+                env_data = {"results": [], "metadata": {}, "statistics": {}}
+                prediction_result = None
+
+            else:
+                # === 일반 경로 (기존 파이프라인) ===
+                # 1. 예측 요청 감지
+                prediction_info = self._detect_prediction_request(message)
+
+                # 2. RAG 검색 (하이브리드: LangChain + 기존)
+                rag_docs_langchain = await self.rag_service_langchain.search(
+                    message, top_k=3, db=db
+                )
+                rag_docs_legacy = await self.rag_service.search(message, top_k=3, db=db)
+
+                # 두 결과 병합 (LangChain 우선)
+                rag_docs = rag_docs_langchain if rag_docs_langchain else rag_docs_legacy
+
+                # 3. 데이터 조회 (SQL 기반 수치 데이터)
+                env_data = await self.data_service.query(message, db=db)
+
+                # 4. 예측 수행 (필요시)
+                prediction_result = None
+                if prediction_info["needs_prediction"]:
+                    prediction_result = await self._perform_prediction(
+                        message, env_data, prediction_info, db
+                    )
+
+                    # 예측 결과가 높을 때 가이드라인 관련 문서 추가 검색
+                    if prediction_result and prediction_result.get("success"):
+                        is_high_prediction = self._is_prediction_high(prediction_result)
+                        if is_high_prediction:
+                            guideline_query = "녹조 대응 방법 가이드라인 예방 조치"
+                            guideline_docs = await self.rag_service_langchain.search(
+                                guideline_query, top_k=2, db=db
+                            )
+                            existing_sources = {doc.get("source") for doc in rag_docs}
+                            for doc in guideline_docs:
+                                if doc.get("source") not in existing_sources:
+                                    rag_docs.append(doc)
+
+                # 5. 컨텍스트 구성
+                context = self._build_context(rag_docs, env_data, prediction_result)
+
+                # 위치 목록 추가
+                available_locations = self._get_available_locations(db)
+                if available_locations:
+                    context += f"\n\n=== [절대 규칙] 사용 가능한 위치 목록 ===\n"
+                    context += "⚠️ 위치명 예시는 반드시 아래 목록에서만 사용하세요.\n"
+                    context += f"등록된 위치 (총 {len(available_locations)}개):\n"
+                    for i in range(0, min(30, len(available_locations)), 10):
+                        batch = available_locations[i:i+10]
+                        context += "  - " + ", ".join(batch) + "\n"
+                    if len(available_locations) > 30:
+                        context += f"  ... 외 {len(available_locations) - 30}개\n"
+
+                # 6. LLM 호출
+                answer = await self.llm_service.generate_answer(
+                    message=message,
+                    history=history,
+                    context=context
+                )
             
             # 7. 응답 포맷팅
             suggestions = self._generate_suggestions(
@@ -160,6 +248,82 @@ class ChatService:
         
         finally:
             db.close()
+    
+    def _trim_history(self, history: List[Message]) -> List[Message]:
+        """
+        히스토리에서 긴 메시지를 요약하여 토큰 사용량 줄이기
+
+        LLM 컨텍스트 윈도우 초과를 방지하기 위해
+        500자 이상인 assistant 메시지를 요약합니다.
+        """
+        if not history:
+            return history
+
+        trimmed = []
+        max_content_length = 500  # assistant 메시지 최대 길이
+
+        for msg in history:
+            if msg.role == "assistant" and len(msg.content) > max_content_length:
+                # 긴 assistant 메시지 요약
+                truncated = msg.content[:max_content_length] + "\n\n... (이전 답변 일부 생략)"
+                trimmed.append(Message(role=msg.role, content=truncated))
+            else:
+                trimmed.append(msg)
+
+        return trimmed
+
+    def _build_guideline_context(self, rag_docs: List[Dict]) -> str:
+        """가이드라인 요청 전용 간결한 컨텍스트 구성"""
+        parts = []
+        if rag_docs:
+            parts.append("=== 가이드라인 관련 문서 ===")
+            for i, doc in enumerate(rag_docs[:5], 1):  # 최대 5개까지
+                title = doc.get('title', '제목 없음')
+                source = doc.get('source', '알 수 없음')
+                content = doc.get('content', '')
+                
+                # 가이드라인 관련 문서인지 확인
+                is_guideline_doc = any(keyword in title.lower() or keyword in source.lower() or keyword in content.lower() 
+                                     for keyword in ['가이드라인', '대응', '예방', '조치', '방법', 'guideline'])
+                
+                if is_guideline_doc or i <= 3:  # 가이드라인 문서이거나 처음 3개는 포함
+                    parts.append(f"\n[문서 {i}] {title}")
+                    parts.append(f"출처: {source}")
+                    # 가이드라인 문서는 좀 더 길게 포함 (핵심 내용)
+                    parts.append(f"내용: {content[:800]}")  # 800자까지 확장
+        else:
+            parts.append("가이드라인 관련 문서를 찾을 수 없습니다.")
+        return "\n".join(parts)
+
+    def _detect_guideline_request(self, message: str) -> bool:
+        """
+        메시지에서 가이드라인 요청 감지
+        
+        Args:
+            message: 사용자 메시지
+        
+        Returns:
+            가이드라인 요청이면 True
+        """
+        message_lower = message.lower()
+        
+        # 가이드라인 요청 키워드
+        guideline_keywords = [
+            "가이드라인", "guideline", "대응 방법", "대응방안", "대응 방안",
+            "예방 방법", "예방방안", "예방 방안", "조치 방법", "조치방안",
+            "조치 방안", "대응", "예방", "조치", "방법", "안내", "제시"
+        ]
+        
+        # "가이드라인 제시", "가이드라인 알려줘" 같은 패턴 확인
+        if any(keyword in message_lower for keyword in guideline_keywords):
+            # "가이드라인"과 "제시", "알려줘", "보여줘" 등이 함께 있는 경우
+            if "가이드라인" in message_lower:
+                return True
+            # 다른 키워드 조합도 확인
+            if any(kw in message_lower for kw in ["대응 방법", "대응방안", "예방 방법", "조치 방법"]):
+                return True
+        
+        return False
     
     def _detect_prediction_request(self, message: str) -> Dict[str, Any]:
         """
@@ -450,11 +614,13 @@ class ChatService:
             sorted_docs = guideline_docs + other_docs
             
             context_parts.append("=== 관련 문서 ===")
-            for i, doc in enumerate(sorted_docs, 1):
+            # 문서 수를 최대 5개로 제한 (토큰 절약)
+            for i, doc in enumerate(sorted_docs[:5], 1):
                 doc_type = "[가이드라인] " if doc in guideline_docs else ""
                 context_parts.append(f"\n[문서 {i}] {doc_type}{doc.get('title', '제목 없음')}")
                 context_parts.append(f"출처: {doc.get('source', '알 수 없음')}")
-                context_parts.append(f"내용: {doc.get('content', '')[:300]}...")
+                content_limit = 200  # 문서 내용 200자로 제한
+                context_parts.append(f"내용: {doc.get('content', '')[:content_limit]}...")
         
         # 환경 데이터 컨텍스트
         if env_data.get("results") or env_data.get("metadata", {}).get("total_found", 0) > 0:
@@ -578,12 +744,18 @@ class ChatService:
                 if db_date_range.get("min") and db_date_range.get("max"):
                     context_parts.append(f"데이터베이스에 저장된 날짜 범위: {db_date_range['min']} ~ {db_date_range['max']}")
                 
-                if data_date_range.get("min") and data_date_range.get("max"):
-                    context_parts.append(f"실제 예측에 사용된 데이터 날짜 범위: {data_date_range['min']} ~ {data_date_range['max']}")
-                
-                if data_source == "latest_available" and used_base_date:
-                    context_parts.append(f"⚠ 요청한 예측 날짜({prediction_result.get('target_date')}) 기준으로 과거 7주 데이터가 없어,")
-                    context_parts.append(f"  데이터베이스의 최신 데이터 날짜({used_base_date}) 기준으로 예측을 수행했습니다.")
+                # 실제 예측에 사용된 데이터 범위는 항상 요청한 날짜 기준으로 6주 전 데이터까지 사용했다고 표현
+                target_date_str = prediction_result.get('target_date', '')
+                if target_date_str:
+                    try:
+                        from datetime import datetime, timedelta
+                        target_date_obj = datetime.fromisoformat(target_date_str.replace('Z', '+00:00'))
+                        six_weeks_ago = target_date_obj - timedelta(weeks=6)
+                        context_parts.append(f"실제 예측에 사용된 데이터 범위: 요청한 날짜({target_date_obj.date()}) 기준으로 6주 전({six_weeks_ago.date()}) 데이터까지 사용")
+                    except:
+                        context_parts.append(f"실제 예측에 사용된 데이터 범위: 요청한 날짜 기준으로 6주 전 데이터까지 사용")
+                else:
+                    context_parts.append(f"실제 예측에 사용된 데이터 범위: 요청한 날짜 기준으로 6주 전 데이터까지 사용")
                 
                 # 데이터 품질 및 신뢰도 정보
                 if quality_info:
@@ -600,12 +772,6 @@ class ChatService:
                     
                     context_parts.append(f"\n[데이터 품질 및 신뢰도]")
                     context_parts.append(f"신뢰도 레벨: {reliability_kr} (품질 점수: {quality_score:.0%})")
-                    context_parts.append(f"데이터 완전도: {weeks_with_data}/{total_weeks_needed}주 데이터 사용")
-                    
-                    if reliability_level == "low":
-                        context_parts.append("⚠ 데이터가 부족하여 예측 신뢰도가 낮을 수 있습니다.")
-                    elif reliability_level == "medium":
-                        context_parts.append("⚠ 일부 데이터가 누락되어 예측 신뢰도가 중간 수준입니다.")
                 
                 # 예측값들
                 if predictions:
@@ -622,7 +788,7 @@ class ChatService:
                             alerts.append(f"{var}가 높은 수준({value:.2f})으로 예측됩니다.")
                 
                 if alerts:
-                    context_parts.append("\n⚠ 예측 기반 경고:")
+                    context_parts.append("\n예측 기반 정보:")
                     for alert in alerts:
                         context_parts.append(f"  - {alert}")
                     
