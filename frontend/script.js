@@ -301,13 +301,16 @@ async function handleSendMessage() {
         // 로딩 제거
         removeMessage(loadingId);
 
-        // 봇 응답 표시
-        addMessage('bot', response.answer);
+        // 봇 응답 표시 (빈 응답 처리)
+        const botAnswer = response.answer && response.answer.trim()
+            ? response.answer
+            : '응답을 생성하지 못했습니다. 다시 질문해주세요.';
+        addMessage('bot', botAnswer);
 
         // 대화 히스토리 업데이트 및 즉시 저장
         conversationHistory.push({
             role: 'assistant',
-            content: response.answer
+            content: botAnswer
         });
         saveConversationHistory(); // 즉시 저장
 
