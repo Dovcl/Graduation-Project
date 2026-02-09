@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     
     # 서버 설정
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    PORT: int = 8000  # Render.com 등에서는 $PORT 환경 변수 사용 (uvicorn --port $PORT로 직접 사용)
     DEBUG: bool = True
     
     # CORS 설정 (쉼표로 구분된 문자열도 지원)

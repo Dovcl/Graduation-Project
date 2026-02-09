@@ -1,0 +1,43 @@
+# Render.com 배포 설정 파일
+# 이 파일을 사용하면 Render 대시보드에서 수동 설정 없이 배포 가능
+
+services:
+  # 백엔드 웹 서비스
+  - type: web
+    name: rag-chatbot-backend
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # PostgreSQL 서비스에서 자동으로 가져옴
+      - key: OPENAI_API_KEY
+        sync: false  # 수동으로 설정 필요
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: DEBUG
+        value: "False"
+      - key: CORS_ORIGINS
+        value: https://rag-chatbot-frontend.onrender.com,http://localhost:8080
+
+  # 프론트엔드 정적 사이트
+  - type: web
+    name: rag-chatbot-frontend
+    env: static
+    region: singapore
+    plan: free
+    buildCommand: ""  # 정적 사이트이므로 빌드 불필요
+    staticPublishPath: ./frontend
+
+databases:
+  # PostgreSQL 데이터베이스
+  - name: rag-chatbot-db
+    databaseName: rag_chatbot_db
+    user: postgres
+    plan: free
+    region: singapore
+

@@ -266,6 +266,13 @@ function setupSidebar() {
             window.location.href = 'visualization.html';
         }, 100);
     });
+
+    // 게시판 버튼
+    const boardBtn = document.getElementById('boardBtn');
+    boardBtn.addEventListener('click', () => {
+        console.log('게시판 페이지로 이동');
+        window.location.href = 'board.html';
+    });
 }
 
 // 메시지 전송 처리

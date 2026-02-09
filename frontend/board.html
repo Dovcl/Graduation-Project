@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>게시판 - 환경 데이터 RAG 챗봇</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="board.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 좌측 사이드바 -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="사이드바 토글">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <img src="assets/이루매캐릭터_46.png" alt="이루매" class="irumae-img">
+            </div>
+            
+            <div class="sidebar-content">
+                <button class="sidebar-btn" id="chatBtn" title="채팅">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span class="sidebar-btn-text">채팅</span>
+                </button>
+                
+                <button class="sidebar-btn visualization-btn" id="visualizationBtn" title="시각화">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span class="sidebar-btn-text">시각화</span>
+                </button>
+                
+                <button class="sidebar-btn board-btn active" id="boardBtn" title="게시판">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 7h16M4 12h16M4 17h16"></path>
+                    </svg>
+                    <span class="sidebar-btn-text">게시판</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- 메인 콘텐츠 영역 -->
+        <div class="main-content">
+            <!-- 헤더 -->
+            <header class="header">
+                <div class="header-content">
+                    <div class="header-left-group">
+                        <div class="header-logo">
+                            <img src="assets/uos-logo-white.png" alt="서울시립대학교" class="logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <div class="logo-placeholder" style="display: none;">UOS</div>
+                        </div>
+                    </div>
+                    
+                    <div class="header-center">
+                        <h1>게시판</h1>
+                    </div>
+                    
+                    <div class="header-right"></div>
+                </div>
+            </header>
+
+            <!-- 게시판 영역 -->
+            <main class="board-container">
+                <!-- 게시판 헤더 -->
+                <div class="board-header">
+                    <h2 class="board-title">전체 게시글</h2>
+                    <div class="board-controls">
+                        <button class="sort-btn active" data-sort="latest">최신순</button>
+                        <button class="sort-btn" data-sort="popular">인기순</button>
+                        <button class="create-post-btn" id="createPostBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14"></path>
+                            </svg>
+                            새 게시글
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 게시글 목록 -->
+                <div class="board-list" id="boardList">
+                    <!-- 게시글이 여기에 동적으로 추가됩니다 -->
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 게시글 작성 모달 -->
+    <div class="modal-overlay" id="createPostModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>새 게시글 작성</h2>
+                <button class="modal-close" id="closeCreateModal">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <form id="createPostForm" class="modal-body">
+                <div class="form-group">
+                    <label for="postCategory">카테고리</label>
+                    <select id="postCategory" required>
+                        <option value="일반">일반</option>
+                        <option value="공지">공지</option>
+                        <option value="대기질">대기질</option>
+                        <option value="수질">수질</option>
+                        <option value="토양">토양</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="postAuthor">작성자</label>
+                    <input type="text" id="postAuthor" placeholder="작성자 이름을 입력하세요" required>
+                </div>
+                <div class="form-group">
+                    <label for="postTitle">제목</label>
+                    <input type="text" id="postTitle" placeholder="제목을 입력하세요" required>
+                </div>
+                <div class="form-group">
+                    <label for="postContent">내용</label>
+                    <textarea id="postContent" placeholder="내용을 입력하세요" rows="10" required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" id="cancelCreatePost">취소</button>
+                    <button type="submit" class="btn-primary">게시글 등록</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 게시글 상세 모달 -->
+    <div class="modal-overlay" id="postDetailModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <div class="post-detail-header">
+                    <span class="post-category-badge" id="detailCategory"></span>
+                </div>
+                <button class="modal-close" id="closeDetailModal">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" id="postDetailContent">
+                <!-- 게시글 상세 내용이 여기에 동적으로 추가됩니다 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 스크립트 -->
+    <script src="config.js"></script>
+    <script src="api/client.js"></script>
+    <script src="board.js"></script>
+</body>
+</html>
+

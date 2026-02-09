@@ -1,0 +1,77 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main  # main 브랜치에 푸시 시 자동 배포
+      - master  # 또는 master 브랜치
+      - feature/visualization  # 현재 개발 브랜치
+  workflow_dispatch:  # 수동 실행도 가능
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            # 프로젝트 디렉토리로 이동
+            cd ${{ secrets.PROJECT_PATH || '/home/pi/rag-chatbot' }}
+            
+            # Git 최신 버전 가져오기
+            echo "📥 Git pull..."
+            git fetch origin
+            # 현재 브랜치 확인 및 업데이트
+            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
+              git reset --hard origin/$CURRENT_BRANCH
+            else
+              git reset --hard origin/feature/visualization || git reset --hard origin/main || git reset --hard origin/master
+            fi
+            
+            # 데이터베이스 확인
+            echo "🗄️ 데이터베이스 확인..."
+            docker-compose up -d postgres || true
+            
+            # 백엔드 의존성 업데이트
+            echo "📦 백엔드 의존성 업데이트..."
+            cd backend
+            if [ ! -d "venv" ]; then
+                python3 -m venv venv
+            fi
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+            
+            # 기존 서버 종료
+            echo "🛑 기존 서버 종료..."
+            pkill -f "uvicorn app.main:app" || true
+            sleep 2
+            
+            # 서버 재시작
+            echo "▶️ 서버 재시작..."
+            nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
+            sleep 3
+            
+            # 서버 상태 확인
+            if ps aux | grep -q "[u]vicorn app.main:app"; then
+                echo "✅ 배포 완료! 서버가 정상적으로 실행 중입니다."
+            else
+                echo "❌ 배포 실패 - 서버 로그 확인 필요"
+                tail -20 server.log
+                exit 1
+            fi
+

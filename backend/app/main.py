@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.core.config import settings
-from app.api import chat, visualization
+from app.api import chat, visualization, board
+from app.database import init_db
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -14,6 +15,18 @@ app = FastAPI(
     description="환경 데이터 분석 및 예측을 위한 RAG 챗봇 API",
     version="1.0.0"
 )
+
+# 서버 시작 시 데이터베이스 테이블 자동 생성
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작 시 실행"""
+    try:
+        print("🔧 데이터베이스 테이블 초기화 중...")
+        init_db()
+        print("✅ 데이터베이스 테이블 초기화 완료")
+    except Exception as e:
+        print(f"⚠️ 데이터베이스 초기화 경고: {e}")
+        # 테이블이 이미 존재하거나 다른 오류일 수 있으므로 계속 진행
 
 # CORS 설정 (프론트엔드에서 접근 가능하도록)
 app.add_middleware(
@@ -27,6 +40,7 @@ app.add_middleware(
 # 라우터 등록
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(visualization.router, prefix="/api", tags=["visualization"])
+app.include_router(board.router, prefix="/api", tags=["board"])
 
 # 정적 파일 서빙 (프론트엔드)
 frontend_path = Path(__file__).parent.parent.parent / "frontend"
