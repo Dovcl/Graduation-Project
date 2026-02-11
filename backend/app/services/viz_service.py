@@ -7,7 +7,14 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.services.viz_transform import build_timeseries, build_map_points, calculate_metrics
-from app.services.viz_query import get_site_coordinates, get_timeseries_data, get_multiple_sites_data, get_all_monitoring_stations
+from app.services.viz_query import (
+    get_site_coordinates,
+    get_timeseries_data,
+    get_max_date_for_timeseries,
+    get_multiple_sites_data,
+    get_all_monitoring_stations,
+    get_predictable_stations,
+)
 from app.schemas.chat import VisualizationData, QueryContext, TimeseriesData, MapPoint
 from app.core.config import settings
 import logging
@@ -27,17 +34,19 @@ class VisualizationService:
         location: Optional[str],
         target_date: Optional[datetime],
         variable: str = "유해남조류 세포수 (cells/㎖)",
-        db: Session = None
+        db: Session = None,
+        requested_location: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         시각화 데이터 생성
         
         Args:
             prediction_result: 예측 결과 딕셔너리
-            location: 지점명
+            location: 지점명 (예측에 사용된 해석된 지점명, 예: 강정고령보_다사)
             target_date: 예측 대상 날짜
             variable: 변수명
             db: 데이터베이스 세션
+            requested_location: 사용자가 입력한 원본 지점명 (예: 강정고령보) - 프론트 강조용
         
         Returns:
             시각화 데이터 딕셔너리 또는 None
@@ -50,10 +59,13 @@ class VisualizationService:
             if not location or not db:
                 return None
             
-            # 쿼리 컨텍스트 구성
+            # 쿼리 컨텍스트 구성 (site_name에는 사용자가 입력한 원본 지점명 사용)
+            display_location = requested_location or location
+            print(f"🔍 시각화 query_context.site_name 설정: requested_location={requested_location}, location={location}, display_location={display_location}")
             query_context = self._build_query_context(
-                location, variable, target_date, prediction_result
+                display_location, variable, target_date, prediction_result
             )
+            print(f"✓ query_context.site_name = {query_context.get('site_name')}")
             
             # 시계열 데이터 준비 (최근 52주)
             timeseries = self._build_timeseries_data(
@@ -64,19 +76,17 @@ class VisualizationService:
             else:
                 print(f"⚠ 시계열 데이터 생성 실패: location={location}, variable={variable}")
             
-            # 지도 포인트 데이터 준비 (모든 관측 지점 표시 - 노트북의 "Algal Monitoring Stations" 방식)
+            # 지도 포인트 데이터 준비: 예측 가능 31개 지점만 표시, 요청 지점은 프론트에서 빨간색 강조
             # 상세 플롯용: 예측값이 있는 지점만 (기존 방식 유지)
             plot_map_points = self._build_map_points_data(
                 location, variable, target_date, prediction_result, db
             )
-            # 지도용: 모든 관측 지점
-            all_stations_map_points = self._build_all_stations_map_data(db)
-            
-            # 지도는 모든 지점, 상세 플롯은 예측값이 있는 지점만
-            map_points = all_stations_map_points if all_stations_map_points else plot_map_points
+            # 지도용: 예측 가능 31개 지점만 (model_config spatial_classes 기준)
+            predictable_map_points = self._build_predictable_stations_map_data(db)
+            map_points = predictable_map_points if predictable_map_points else plot_map_points
             
             if map_points:
-                print(f"✓ 지도 포인트 데이터 생성 완료: {len(map_points)}개 (지도: 모든 지점, 상세 플롯: 예측값 있는 지점)")
+                print(f"✓ 지도 포인트 데이터 생성 완료: {len(map_points)}개 (예측 가능 지점만), 강조 지점: {location}")
             else:
                 print(f"⚠ 지도 포인트 데이터 생성 실패")
             
@@ -176,17 +186,24 @@ class VisualizationService:
         """시계열 데이터 구성"""
         try:
             print(f"🔍 시계열 데이터 생성 시작: location={location}, variable={variable}")
-            
-            # 기간 설정 (최근 52주)
+
+            # 관측값은 DB에 있는 기간 안에서만 조회 (target_date가 미래면 DB 최신일까지 사용)
+            db_max_date = get_max_date_for_timeseries(location, variable, db)
             if target_date:
                 end_date = target_date
                 start_date = target_date - timedelta(weeks=52)
+                if db_max_date and end_date.date() > db_max_date.date():
+                    end_date = db_max_date
+                    start_date = end_date - timedelta(weeks=52)
             else:
                 end_date = datetime.now()
                 start_date = end_date - timedelta(weeks=52)
-            
+                if db_max_date and end_date.date() > db_max_date.date():
+                    end_date = db_max_date
+                    start_date = end_date - timedelta(weeks=52)
+
             print(f"조회 기간: {start_date.date()} ~ {end_date.date()}")
-            
+
             # 관측 데이터 조회
             timeseries_data = get_timeseries_data(
                 location, variable, start_date, end_date, db, limit=52
@@ -284,31 +301,34 @@ class VisualizationService:
         db: Session
     ) -> Optional[List[Dict[str, Any]]]:
         """
-        모든 관측 지점 지도 데이터 구성
-        
-        노트북의 "Algal Monitoring Stations over Watershed and River Network" 방식
-        모든 관측 지점을 지도에 표시 (값 없이 위치만)
+        모든 관측 지점 지도 데이터 구성 (폴백용)
         """
         try:
-            print(f"🔍 모든 관측 지점 지도 데이터 생성 시작")
-            
-            # 모든 관측 지점 조회
             all_stations = get_all_monitoring_stations(db)
             if not all_stations:
-                print(f"❌ 관측 지점 조회 실패")
                 return None
-            
-            print(f"✓ 관측 지점 조회 성공: {len(all_stations)}개")
-            
-            # 지도 포인트 생성 (값은 없음 - 단순히 지점 위치만 표시)
-            result = build_map_points(all_stations)
-            print(f"✓ 모든 관측 지점 지도 포인트 생성 완료: {len(result)}개")
-            return result
-        
+            return build_map_points(all_stations)
         except Exception as e:
             logger.error(f"모든 관측 지점 지도 데이터 구성 실패: {e}", exc_info=True)
-            print(f"❌ 모든 관측 지점 지도 데이터 구성 중 오류: {e}")
-            import traceback
-            traceback.print_exc()
+            return None
+
+    def _build_predictable_stations_map_data(
+        self,
+        db: Session
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        예측 가능 31개 지점만 지도 데이터 구성 (값 없이 위치만).
+        강조할 지점은 query_context.site_name으로 프론트에서 빨간색 표시.
+        """
+        try:
+            print(f"🔍 예측 가능 지점(31개) 지도 데이터 생성 시작")
+            stations = get_predictable_stations(db)
+            if not stations:
+                print(f"❌ 예측 가능 지점 조회 실패")
+                return None
+            print(f"✓ 예측 가능 지점 {len(stations)}개 조회 성공")
+            return build_map_points(stations)
+        except Exception as e:
+            logger.error(f"예측 가능 지점 지도 데이터 구성 실패: {e}", exc_info=True)
             return None
 

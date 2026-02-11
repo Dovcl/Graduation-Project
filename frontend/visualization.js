@@ -325,25 +325,39 @@ function renderMap() {
     }
     
     console.log('지도 포인트 렌더링 시작, 포인트 개수:', mapPoints.length);
-    console.log('지도 포인트 데이터:', JSON.stringify(mapPoints, null, 2));
+    console.log('🔍 visualizationData 전체:', JSON.stringify(visualizationData, null, 2));
+    console.log('🔍 visualizationData.type:', visualizationData.type);
+    console.log('🔍 visualizationData.query_context:', visualizationData.query_context);
+    console.log('🔍 visualizationData.query_context?.site_name:', visualizationData.query_context?.site_name);
 
-    // 값 범위 계산 (컬러바용) - 값이 있는 포인트만
+    // 녹조 예측 지도: 예측 가능 31개 지점만 표시, 요청한 지점은 빨간색 강조
+    const isAlgaeForecast = visualizationData.type === 'algae_forecast';
+    const highlightSiteName = (visualizationData.query_context && visualizationData.query_context.site_name) || '';
+    const useHighlightMode = isAlgaeForecast && highlightSiteName;
+    console.log('🔍 강조 모드:', { isAlgaeForecast, highlightSiteName, useHighlightMode, 'query_context 존재': !!visualizationData.query_context });
+
+    // 값 범위 계산 (컬러바용) - 강조 모드가 아닐 때만 값 기반 색상
     const values = mapPoints.map(p => p.value).filter(v => v !== null && v !== undefined);
-    const hasValues = values.length > 0;
-    
+    const hasValues = values.length > 0 && !useHighlightMode;
     let minValue = 0;
     let maxValue = 1;
     if (hasValues) {
         minValue = Math.min(...values);
         maxValue = Math.max(...values);
-        // 컬러바 생성 (값이 있는 경우만)
         renderColorbar(minValue, maxValue);
+    } else if (useHighlightMode) {
+        // 강조 모드에서는 컬러바 숨김
+        const colorbarEl = document.getElementById('colorbarContainer');
+        if (colorbarEl) colorbarEl.style.display = 'none';
     }
 
     // 설명 표시
     const mapPointDesc = document.getElementById('mapPointDescription');
     if (mapPointDesc) {
-        if (hasValues) {
+        if (useHighlightMode) {
+            mapPointDesc.style.display = 'inline';
+            mapPointDesc.textContent = '회색: 예측 가능 지점(31개). 빨간색: 요청하신 예측 지점입니다.';
+        } else if (hasValues) {
             mapPointDesc.style.display = 'inline';
             mapPointDesc.textContent = '색상이 있는 원형 마커는 예측 지점의 녹조 농도를 나타냅니다 (색이 진할수록 높은 값).';
         } else {
@@ -355,21 +369,29 @@ function renderMap() {
     // 포인트 추가
     let addedCount = 0;
     mapPoints.forEach((point, index) => {
-        console.log(`포인트 ${index} 처리:`, point);
-        if (!point.lat || !point.lng) {
-            console.warn('좌표가 없는 포인트:', point);
-            return;
-        }
+        if (!point.lat || !point.lng) return;
 
-        // 값이 있으면 색상 계산, 없으면 기본 색상 (회색)
-        let color = '#999';  // 기본 색상 (값 없음)
-        if (point.value !== null && point.value !== undefined && hasValues) {
+        // 정확 일치 또는 접두어 일치 (예: "강정고령보" ↔ "강정고령보_다사")
+        const name = (point.name || point.site_id || '').trim();
+        const highlight = (highlightSiteName || '').trim();
+        const isHighlight = highlight && name && (
+            name === highlight ||
+            name.indexOf(highlight) === 0 ||
+            highlight.indexOf(name) === 0 ||
+            name.includes(highlight) ||
+            highlight.includes(name)
+        );
+        if (useHighlightMode) {
+            console.log(`포인트 ${index}: name="${name}", highlight="${highlight}", isHighlight=${isHighlight}, point.name="${point.name}", point.site_id="${point.site_id}"`);
+        }
+        let color = '#999';
+        if (useHighlightMode) {
+            color = isHighlight ? '#c0392b' : '#999';  // 빨간색 강조
+        } else if (point.value !== null && point.value !== undefined && hasValues) {
             color = getColorByValue(point.value, minValue, maxValue);
         }
-        
-        const radius = 8;  // 크기
+        const radius = isHighlight ? 10 : 8;
 
-        console.log(`마커 추가: lat=${point.lat}, lng=${point.lng}, color=${color}, value=${point.value || 'N/A'}`);
         const marker = L.circleMarker([point.lat, point.lng], {
             radius: radius,
             fillColor: color,
@@ -379,27 +401,15 @@ function renderMap() {
         }).addTo(map);
         addedCount++;
 
-        // 팝업 추가
-        let popupContent = `
-            <div class="map-popup">
-                <strong>${point.name || point.site_id}</strong><br>
-        `;
-        
-        if (point.value !== null && point.value !== undefined) {
-            popupContent += `
-                <hr style="margin: 0.5rem 0;">
-                <strong>예측값:</strong><br>
-                ${visualizationData.query_context?.variable || '유해남조류 세포수'}: 
-                ${point.value.toFixed(2)} 
-                ${visualizationData.query_context?.unit || 'cells/㎖'}
-            `;
-        } else {
-            popupContent += `
-                <hr style="margin: 0.5rem 0;">
-                <em>관측 지점</em>
-            `;
+        let popupContent = `<div class="map-popup"><strong>${point.name || point.site_id}</strong><br>`;
+        if (isHighlight) {
+            popupContent += `<hr style="margin: 0.5rem 0;"><strong>요청 예측 지점</strong>`;
         }
-        
+        if (point.value !== null && point.value !== undefined) {
+            popupContent += `<hr style="margin: 0.5rem 0;"><strong>예측값:</strong><br>${visualizationData.query_context?.variable || '유해남조류 세포수'}: ${point.value.toFixed(2)} ${visualizationData.query_context?.unit || 'cells/㎖'}`;
+        } else if (!useHighlightMode || !isHighlight) {
+            popupContent += `<hr style="margin: 0.5rem 0;"><em>예측 가능 지점</em>`;
+        }
         popupContent += `</div>`;
         marker.bindPopup(popupContent);
     });

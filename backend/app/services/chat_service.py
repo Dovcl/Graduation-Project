@@ -139,6 +139,7 @@ class ChatService:
                 prediction_info = {"needs_prediction": False, "location": None, "target_date": None, "weeks_ahead": None}
                 env_data = {"results": [], "metadata": {}, "statistics": {}}
                 prediction_result = None
+                visualizations = None
 
             else:
                 # === 일반 경로 (기존 파이프라인) ===
@@ -177,8 +178,11 @@ class ChatService:
                                 if doc.get("source") not in existing_sources:
                                     rag_docs.append(doc)
 
-                # 5. 컨텍스트 구성
-                context = self._build_context(rag_docs, env_data, prediction_result)
+                # 5. 컨텍스트 구성 (요청 지점명 전달: 답변에 '강정고령보' 등 사용자 표현 사용)
+                context = self._build_context(
+                    rag_docs, env_data, prediction_result,
+                    requested_location=prediction_info.get("location")
+                )
 
                 # 위치 목록 추가
                 available_locations = self._get_available_locations(db)
@@ -208,6 +212,8 @@ class ChatService:
             visualizations = None
             if prediction_result and prediction_result.get("success"):
                 location = prediction_info.get("location") or prediction_result.get("location")
+                requested_location = prediction_info.get("location")  # 사용자가 입력한 원본 지점명
+                print(f"🔍 시각화 생성: location={location}, requested_location={requested_location}, prediction_info.location={prediction_info.get('location')}")
                 target_date = prediction_info.get("target_date")
                 variable = "유해남조류 세포수 (cells/㎖)"  # 기본 변수
                 
@@ -222,7 +228,8 @@ class ChatService:
                         location=location,
                         target_date=target_date,
                         variable=variable,
-                        db=db
+                        db=db,
+                        requested_location=requested_location  # 프론트 강조용 원본 지점명
                     )
                     if visualizations:
                         print(f"✓ 시각화 데이터 생성 완료: type={visualizations.type}, map_points={len(visualizations.map_points) if visualizations.map_points else 0}, timeseries={visualizations.timeseries is not None}")
@@ -578,7 +585,8 @@ class ChatService:
         self, 
         rag_docs: List[Dict], 
         env_data: Dict[str, Any],
-        prediction_result: Optional[Dict[str, Any]] = None
+        prediction_result: Optional[Dict[str, Any]] = None,
+        requested_location: Optional[str] = None
     ) -> str:
         """
         컨텍스트 구성 - RAG 문서와 환경 데이터를 통합
@@ -714,8 +722,10 @@ class ChatService:
                 metadata = prediction_result.get("metadata", {})
                 data_info = metadata.get("data_info", {})
                 quality_info = metadata.get("quality", {})
-                
-                context_parts.append(f"위치: {prediction_result.get('location', '알 수 없음')}")
+                # 답변에는 사용자가 요청한 지점명(예: 강정고령보)만 사용. 수계명(낙동강 등) 붙이지 말 것.
+                if requested_location:
+                    context_parts.append(f"[답변에 사용할 지점명] {requested_location} (이 이름만 사용하고, '낙동강_강정·고령' 등 다른 표기는 사용하지 마세요)")
+                context_parts.append(f"위치(시스템): {prediction_result.get('location', '알 수 없음')}")
                 
                 # 예측 기간 계산 (target_date의 다음 1주)
                 target_date_str = prediction_result.get('target_date', '')

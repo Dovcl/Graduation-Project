@@ -103,6 +103,34 @@ class PredictionService:
         week = iso_calendar[1]
         return f"{year}_{week:02d}"
     
+    def _resolve_location_to_spatial_class(self, location: str) -> Optional[str]:
+        """
+        사용자 입력(예: '강정고령보')을 model_config의 spatial_classes 한 개로 확정.
+        '강정고령보' -> '강정고령보_다사' 우선, '낙동강_강정·고령'이 선택되지 않도록 함.
+        """
+        if not location or not self.config:
+            return location
+        spatial_classes = self.config.get("encoders", {}).get("spatial_classes") or []
+        if not spatial_classes:
+            return location
+        loc = (location or "").strip()
+        # 1) 정확 일치
+        if loc in spatial_classes:
+            return loc
+        # 2) spatial_class가 loc으로 시작 (예: '강정고령보' -> '강정고령보_다사')
+        for sc in spatial_classes:
+            if sc.startswith(loc):
+                return sc
+        # 3) loc이 spatial_class로 시작
+        for sc in spatial_classes:
+            if loc.startswith(sc):
+                return sc
+        # 4) loc이 spatial_class에 포함
+        for sc in spatial_classes:
+            if loc in sc:
+                return sc
+        return location
+    
     def _get_wq_location(self, algae_location: str, db: Session) -> Optional[str]:
         """
         녹조 지점으로부터 매칭된 수질 지점 찾기
@@ -130,14 +158,13 @@ class PredictionService:
         if mapping:
             return mapping.wq_location
         
-        # 역방향 매칭 시도 (algae_location이 location을 포함하는 경우)
-        mapping = db.query(LocationMapping).filter(
-            algae_location.contains(LocationMapping.algae_location)
-        ).first()
-        
-        if mapping:
-            return mapping.wq_location
-        
+        # 역방향 매칭 시도 (Python에서 처리: 변수 ↔ DB 값 포함 관계)
+        for m in db.query(LocationMapping).all():
+            if not m.algae_location:
+                continue
+            if algae_location in m.algae_location or m.algae_location in algae_location:
+                return m.wq_location
+
         # 매칭되지 않으면 None 반환 (기존 동작 유지)
         return None
     
@@ -650,6 +677,12 @@ class PredictionService:
             should_close = False
         
         try:
+            # 사용자 입력을 spatial_classes 한 개로 확정 (예: 강정고령보 -> 강정고령보_다사)
+            resolved = self._resolve_location_to_spatial_class(location)
+            if resolved:
+                if resolved != location:
+                    print(f"ℹ 지점 매칭: '{location}' -> '{resolved}'")
+                location = resolved
             # 입력 시퀀스 준비
             input_data = self._prepare_input_sequence(location, target_date, db)
             if input_data is None:
