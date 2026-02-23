@@ -1,11 +1,13 @@
 """
 채팅 API 엔드포인트
 """
+import logging
 from fastapi import APIRouter, HTTPException
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import ChatService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # 서비스 인스턴스는 함수 내에서 생성 (지연 초기화)
 def get_chat_service():
@@ -36,5 +38,6 @@ async def chat(request: ChatRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("POST /api/chat 500: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 

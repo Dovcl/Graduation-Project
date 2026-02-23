@@ -395,7 +395,11 @@ function addMessage(role, content, scroll = true) {
     
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
-    contentDiv.textContent = content;
+    if (messageRole === 'bot' && typeof marked !== 'undefined') {
+        contentDiv.innerHTML = marked.parse(content);
+    } else {
+        contentDiv.textContent = content;
+    }
     
     messageDiv.appendChild(contentDiv);
     chatMessages.appendChild(messageDiv);

@@ -29,9 +29,19 @@ async def startup_event():
         # 테이블이 이미 존재하거나 다른 오류일 수 있으므로 계속 진행
 
 # CORS 설정 (프론트엔드에서 접근 가능하도록)
+# ngrok URL은 동적으로 변경되므로 개발 환경에서는 모든 origin 허용
+# 프로덕션에서는 특정 origin만 허용하도록 설정
+cors_origins = settings.CORS_ORIGINS
+if settings.DEBUG:
+    # 개발 환경: 모든 origin 허용 (ngrok URL 포함)
+    cors_origins = ["*"]
+else:
+    # 프로덕션: 설정된 origin만 허용
+    cors_origins = settings.CORS_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

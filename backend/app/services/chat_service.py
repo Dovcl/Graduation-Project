@@ -72,21 +72,27 @@ class ChatService:
                     if rag_docs_langchain:
                         rag_docs = rag_docs_langchain
 
-                # 가이드라인용 간단한 컨텍스트
+                # 가이드라인용 간단한 컨텍스트 (답변 순서: 해당 지역 농도·구간 → 수치 기준 → 단계별 대응)
                 context = self._build_guideline_context(rag_docs)
+                guideline_instruction = (
+                    "[가이드라인 답변 순서] "
+                    "대화에서 방금 예측한 지역과 농도가 있으면, 먼저 그 지역의 예측 농도를 알려주고 어느 구간(관심/주의/경보)에 해당하는지 설명한 뒤, "
+                    "수치 기준을 제시하고, 이어서 단계별 대응 방법을 설명하세요.\n\n"
+                )
+                context = guideline_instruction + (context or "")
                 
-                # 컨텍스트가 비어있거나 너무 짧으면 기본 안내 추가
-                if not context or not context.strip() or len(context.strip()) < 50:
+                # 컨텍스트가 비어있거나 문서 내용이 거의 없으면 기본 수치 기준·대응 안내 추가
+                if not context or len(context.strip()) < 200:
                     print("⚠ 컨텍스트가 비어있거나 너무 짧음, 기본 가이드라인 정보 추가")
-                    context = """=== 가이드라인 관련 문서 ===
+                    context = guideline_instruction + """=== 가이드라인 관련 문서 ===
 [문서 1] 녹조 대응 가이드라인
 출처: 환경부 녹조 대응 매뉴얼
+수치 기준(유해남조류 세포수, cells/ml): 관심 1,000 미만, 주의 1,000 이상, 경보 10,000 이상, 중대 경보 100,000 이상.
 내용: 녹조 발생 시 대응 방법은 다음과 같습니다:
 1. 예방 단계: 정기적인 수질 모니터링, 유입원 관리, 수질 개선 조치
 2. 초기 대응: 경보 발령, 취수 중단 검토, 대체 수원 확보
 3. 확산 대응: 살조제 투입, 물리적 차단, 공중 보건 안내
-4. 회복 단계: 수질 회복 모니터링, 정상 취수 재개, 사후 관리
-구체적인 수치 기준: 유해남조류 세포수가 1,000 cells/ml 이상이면 주의, 10,000 cells/ml 이상이면 경보, 100,000 cells/ml 이상이면 중대 경보입니다."""
+4. 회복 단계: 수질 회복 모니터링, 정상 취수 재개, 사후 관리"""
 
                 print(f"✓ 컨텍스트 길이: {len(context)}자")
                 print(f"✓ 컨텍스트 미리보기: {context[:200]}...")
@@ -101,33 +107,19 @@ class ChatService:
                 if not answer or "응답을 생성하지 못했습니다" in answer or "오류가 발생했습니다" in answer:
                     print("⚠ 첫 번째 시도 실패, 기본 가이드라인으로 재시도")
                     # 기본 가이드라인으로 재시도
-                    fallback_context = """=== 녹조 대응 가이드라인 ===
-녹조 발생 시 단계별 대응 방법:
+                    fallback_context = """[가이드라인 답변 순서] 대화에 예측한 지역·농도가 있으면 먼저 그 지역의 예측 농도와 구간(관심/주의/경보)을 설명한 뒤, 아래 수치 기준과 단계별 대응을 제시하세요.
 
-1단계 - 예방 및 모니터링:
-- 정기적인 수질 모니터링 실시
-- 유입원(오염원) 관리 및 차단
-- 수질 개선 조치 (인공습지, 생태통로 등)
-
-2단계 - 초기 대응 (1,000 cells/ml 이상):
-- 경보 발령 및 취수 중단 검토
-- 대체 수원 확보
-- 주민 공지 및 안내
-
-3단계 - 확산 대응 (10,000 cells/ml 이상):
-- 살조제 투입 검토
-- 물리적 차단 시설 설치
-- 공중 보건 안내 강화
-
-4단계 - 회복 단계:
-- 수질 회복 모니터링
-- 정상 취수 재개
-- 사후 관리 및 재발 방지
-
-수치 기준:
+=== 녹조 대응 가이드라인 (수치 기준) ===
+- 관심: 1,000 cells/ml 미만
 - 주의: 1,000 cells/ml 이상
-- 경보: 10,000 cells/ml 이상  
-- 중대 경보: 100,000 cells/ml 이상"""
+- 경보: 10,000 cells/ml 이상
+- 중대 경보: 100,000 cells/ml 이상
+
+단계별 대응 방법:
+1단계 - 예방 및 모니터링: 정기 수질 모니터링, 유입원 관리, 수질 개선 조치
+2단계 - 초기 대응 (주의 이상): 경보 발령·취수 중단 검토, 대체 수원 확보, 주민 안내
+3단계 - 확산 대응 (경보 이상): 살조제 투입 검토, 물리적 차단, 공중 보건 안내 강화
+4단계 - 회복: 수질 회복 모니터링, 정상 취수 재개, 사후 관리"""
                     
                     answer = await self.llm_service.generate_answer(
                         message=message,
@@ -788,6 +780,10 @@ class ChatService:
                     context_parts.append("\n녹조 관련 예측값:")
                     for var, value in predictions.items():
                         context_parts.append(f"  - {var}: {value:.4f}")
+                    # 예측 답변은 짧게: 모니터링/가이드라인 본문 없이, 마지막에 요청 형태로만 제안
+                    context_parts.append("\n[중요 지시] 답변은 예측값·근거(데이터 품질)·해석까지만 작성하고, "
+                                         "모니터링 및 대응·가이드라인 내용은 본문에 넣지 마세요. "
+                                         "마지막에 한 문장으로만 '모니터링 및 대응 혹은 가이드라인을 알려드릴까요?'처럼 사용자에게 요청하는 느낌으로 제안하세요.")
                 
                 # 경고 정보 (예측값 기반)
                 alerts = []
@@ -801,11 +797,6 @@ class ChatService:
                     context_parts.append("\n예측 기반 정보:")
                     for alert in alerts:
                         context_parts.append(f"  - {alert}")
-                    
-                    # 예측 결과가 높을 때 가이드라인 제안 지시
-                    context_parts.append("\n[중요 지시] 예측 결과가 높은 수준입니다. "
-                                       "답변 마지막에 '녹조가 높을 때 대응 방법을 알려드릴까요?' 또는 "
-                                       "'가이드라인을 설명해드릴까요?'라고 자연스럽게 제안하세요.")
             else:
                 context_parts.append(f"예측 실패: {prediction_result.get('error', '알 수 없는 오류')}")
                 if prediction_result.get("location"):
@@ -862,17 +853,16 @@ class ChatService:
                     suggestions.append("가이드라인을 자세히 설명해주세요")
                     break
         
-        # 예측 결과가 있을 때 제안
+        # 예측 결과가 있을 때 제안 (맥락에 맞게 다양하게)
         if has_prediction:
             location = prediction_result.get("location")
             if location:
                 suggestions.append(f"{location}의 과거 녹조 추이를 보여주세요")
                 suggestions.append(f"{location}의 예측 결과에 대한 상세 설명을 해주세요")
-                
-                # 예측 결과가 높을 때 가이드라인 제안
+                suggestions.append("다른 위치의 예측도 해주세요")
+                # 예측값이 높을 때만 가이드라인/대응 제안 추가
                 if self._is_prediction_high(prediction_result):
                     suggestions.append("녹조가 높을 때 대응 방법을 알려주세요")
-                suggestions.append("가이드라인을 자세히 설명해주세요")
             else:
                 suggestions.append("다른 위치의 예측도 해주세요")
                 suggestions.append("더 먼 미래의 예측도 가능한가요?")

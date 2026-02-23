@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # CORS 설정 (쉼표로 구분된 문자열도 지원)
+    # ngrok URL은 동적으로 허용되므로 여기에 명시하지 않아도 됨
+    # 하지만 개발 편의를 위해 ngrok 도메인 패턴 허용
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000,http://localhost:8080,http://127.0.0.1:8080"
     
     @field_validator('CORS_ORIGINS', mode='before')
