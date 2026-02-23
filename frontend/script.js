@@ -2,6 +2,7 @@
 
 // 전역 변수
 let conversationHistory = [];
+let currentHistoryId = null; // 현재 로드된 히스토리 ID (null이면 새 대화)
 
 // API 클라이언트 초기화 확인 및 재초기화
 function ensureAPIClient() {
@@ -22,7 +23,7 @@ function ensureAPIClient() {
 }
 
 // 초기화
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('=== 페이지 로드 시작 ===');
     
     // API 클라이언트 초기화 확인
@@ -43,19 +44,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (isReload) {
         console.log('🔄 새로고침 감지: 대화 히스토리 초기화');
-        // 새로고침 시 sessionStorage 초기화
         sessionStorage.removeItem('conversationHistory');
         sessionStorage.removeItem('visualizationData');
+        sessionStorage.removeItem('currentHistoryId');
         conversationHistory = [];
+        currentHistoryId = null;
     } else {
         console.log('📄 일반 페이지 로드: 대화 히스토리 복원');
-        // sessionStorage에서 대화 히스토리 복원
         loadConversationHistory();
+        currentHistoryId = sessionStorage.getItem('currentHistoryId') || null;
     }
     
     setupEventListeners();
     setupSidebar();
-    
+    await renderChatHistory();
+    setTimeout(() => renderChatHistory(), 300);
+
     // 항상 메시지 복원 (히스토리가 없으면 초기 메시지 표시)
     restoreChatMessages();
     
@@ -229,7 +233,9 @@ function setupSidebar() {
     });
 
     // 새 채팅 버튼
-    newChatBtn.addEventListener('click', () => {
+    newChatBtn.addEventListener('click', async () => {
+        await saveToLocalHistory();
+
         // 대화 히스토리 초기화
         conversationHistory = [];
         sessionStorage.removeItem('conversationHistory');
@@ -242,6 +248,11 @@ function setupSidebar() {
                 </div>
             </div>
         `;
+
+        // 활성 히스토리 항목 해제
+        currentHistoryId = null;
+        sessionStorage.removeItem('currentHistoryId');
+        document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
         console.log('✓ 새 채팅 시작 (히스토리 초기화)');
     });
 
@@ -445,5 +456,140 @@ function removeMessage(messageId) {
     if (message) {
         message.remove();
     }
+}
+
+// =====================
+// 대화 기록 (서버 API 기반)
+// =====================
+
+async function fetchHistory() {
+    try {
+        const res = await fetch('/api/history');
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+async function saveToLocalHistory() {
+    if (conversationHistory.length === 0) return;
+
+    const vizData = sessionStorage.getItem('visualizationData') || null;
+
+    if (currentHistoryId !== null) {
+        // 기존 항목 업데이트
+        try {
+            await fetch(`/api/history/${currentHistoryId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: JSON.stringify(conversationHistory),
+                    visualization_data: vizData
+                })
+            });
+        } catch (e) {}
+        await renderChatHistory();
+        return;
+    }
+
+    // 새 대화 저장
+    const firstUserMsg = conversationHistory.find(m => m.role === 'user');
+    if (!firstUserMsg) return;
+
+    const title = firstUserMsg.content.length > 35
+        ? firstUserMsg.content.substring(0, 35) + '…'
+        : firstUserMsg.content;
+
+    const now = new Date();
+    const timestamp = `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    try {
+        await fetch('/api/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: Date.now().toString(),
+                title,
+                timestamp,
+                messages: JSON.stringify(conversationHistory),
+                visualization_data: vizData
+            })
+        });
+    } catch (e) {}
+    await renderChatHistory();
+}
+
+async function renderChatHistory() {
+    const list = document.getElementById('chatHistoryList');
+    if (!list) return;
+
+    const history = await fetchHistory();
+
+    if (history.length === 0) {
+        list.innerHTML = '<div class="history-empty">저장된 대화가 없습니다</div>';
+        return;
+    }
+
+    list.innerHTML = history.map(item => `
+        <div class="history-item" data-id="${item.id}">
+            <div class="history-item-body" onclick="loadHistoryConversation('${item.id}')">
+                <div class="history-item-title">${escapeHtml(item.title)}</div>
+                <div class="history-item-time">${item.timestamp}</div>
+            </div>
+            <button class="history-item-delete" onclick="deleteHistoryItem('${item.id}')" title="삭제">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+
+    if (currentHistoryId) {
+        const activeItem = document.querySelector(`.history-item[data-id="${currentHistoryId}"]`);
+        if (activeItem) activeItem.classList.add('active');
+    }
+}
+
+async function deleteHistoryItem(id) {
+    try {
+        await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    } catch (e) {}
+    await renderChatHistory();
+}
+
+async function loadHistoryConversation(id) {
+    if (id === currentHistoryId) return;
+
+    await saveToLocalHistory();
+
+    const history = await fetchHistory();
+    const item = history.find(h => h.id === id);
+    if (!item) return;
+
+    currentHistoryId = id;
+    sessionStorage.setItem('currentHistoryId', id);
+    conversationHistory = JSON.parse(item.messages);
+    saveConversationHistory();
+
+    if (item.visualization_data) {
+        sessionStorage.setItem('visualizationData', item.visualization_data);
+    } else {
+        sessionStorage.removeItem('visualizationData');
+    }
+
+    restoreChatMessages();
+
+    document.querySelectorAll('.history-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.id === id);
+    });
+}
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 

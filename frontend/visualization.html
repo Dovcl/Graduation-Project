@@ -3,8 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>시각화 - 환경 데이터 RAG 챗봇</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="board.css?v=2">
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- Chart.js -->
@@ -12,7 +16,7 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- 좌측 사이드바 (기존과 동일) -->
+        <!-- 좌측 사이드바 -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="사이드바 토글">
@@ -24,15 +28,15 @@
                 </button>
                 <img src="assets/이루매캐릭터_46.png" alt="이루매" class="irumae-img">
             </div>
-            
+
             <div class="sidebar-content">
-                <button class="sidebar-btn" id="backToChatBtn" title="채팅으로 돌아가기">
+                <button class="sidebar-btn" id="chatBtn" title="채팅">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M19 12H5M12 19l-7-7 7-7"></path>
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                     </svg>
                     <span class="sidebar-btn-text">채팅</span>
                 </button>
-                
+
                 <button class="sidebar-btn visualization-btn active" id="visualizationBtn" title="시각화">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="20" x2="18" y2="10"></line>
@@ -41,6 +45,18 @@
                     </svg>
                     <span class="sidebar-btn-text">시각화</span>
                 </button>
+
+                <button class="sidebar-btn board-btn" id="boardBtn" title="게시판">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 7h16M4 12h16M4 17h16"></path>
+                    </svg>
+                    <span class="sidebar-btn-text">게시판</span>
+                </button>
+
+                <div class="history-divider">
+                    <span class="history-divider-label">대화 기록</span>
+                </div>
+                <div class="chat-history-list" id="chatHistoryList"></div>
             </div>
         </aside>
 
@@ -156,9 +172,9 @@
     <!-- Plotly (최신 버전) -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     
-    <!-- 스크립트 -->
+    <!-- 스크립트 (캐시 방지: 수정 시 v 값 올리기) -->
     <script src="config.js"></script>
-    <script src="visualization.js"></script>
+    <script src="visualization.js?v=5"></script>
 </body>
 </html>
 

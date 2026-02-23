@@ -156,6 +156,129 @@ body {
     background: var(--uos-gray-soft);
 }
 
+.sidebar-btn.active {
+    background: var(--uos-blue-soft);
+    color: var(--uos-blue);
+}
+
+/* 대화 기록 구분선 */
+.history-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0.5rem 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.history-divider::before,
+.history-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--uos-gray-soft);
+}
+
+.history-divider-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--uos-gray-light);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+/* 대화 기록 목록 */
+.chat-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow-y: auto;
+    flex: 1;
+    padding-bottom: 0.5rem;
+}
+
+.history-empty {
+    font-size: 0.8rem;
+    color: var(--uos-gray-light);
+    text-align: center;
+    padding: 1rem 0.5rem;
+}
+
+/* 대화 기록 아이템 */
+.history-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 0.5rem;
+    padding: 0.1rem 0.25rem 0.1rem 0.5rem;
+    transition: background 0.15s;
+}
+
+.history-item:hover {
+    background: var(--uos-gray-mist);
+}
+
+.history-item.active {
+    background: var(--uos-blue-soft);
+}
+
+.history-item.active .history-item-title {
+    color: var(--uos-blue);
+}
+
+.history-item-body {
+    flex: 1;
+    cursor: pointer;
+    min-width: 0;
+    padding: 0.4rem 0.25rem;
+}
+
+.history-item-title {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--uos-gray);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-item-time {
+    font-size: 0.7rem;
+    color: var(--uos-gray-light);
+    margin-top: 0.15rem;
+}
+
+.history-item-delete {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--uos-gray-light);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.history-item:hover .history-item-delete {
+    opacity: 1;
+}
+
+.history-item-delete:hover {
+    background: #fee2e2;
+    color: #ef4444;
+}
+
+/* 사이드바 닫혔을 때 대화 기록 숨김 */
+.sidebar.closed .history-divider,
+.sidebar.closed .chat-history-list {
+    display: none;
+}
+
 .sidebar-btn svg {
     flex-shrink: 0;
 }

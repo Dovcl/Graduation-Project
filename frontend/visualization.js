@@ -8,10 +8,12 @@ let plotlyChart = null;
 let visualizationData = null;
 
 // 초기화
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    setupSidebar();
     setupEventListeners();
     setupDownloadButton();
     loadVisualizationData();
+    await renderChatHistory();
     
     // 초기 로드 시 지도 탭이 활성화되어 있으면 지도 초기화
     const mapPanel = document.getElementById('mapPanel');
@@ -24,6 +26,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// 사이드바 설정 (게시판 페이지와 동일 구조)
+function setupSidebar() {
+    const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+    const sidebar = document.getElementById('sidebar');
+    const chatBtn = document.getElementById('chatBtn');
+    const visualizationBtn = document.getElementById('visualizationBtn');
+    const boardBtn = document.getElementById('boardBtn');
+
+    // 사이드바 토글
+    sidebarToggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('closed');
+    });
+
+    // 채팅 버튼
+    chatBtn.addEventListener('click', () => {
+        window.location.href = 'index.html';
+    });
+
+    // 시각화 버튼 (현재 페이지)
+    visualizationBtn.classList.add('active');
+
+    // 게시판 버튼
+    boardBtn.addEventListener('click', () => {
+        window.location.href = 'board.html';
+    });
+}
+
 // 이벤트 리스너 설정
 function setupEventListeners() {
     // 탭 전환
@@ -34,32 +63,6 @@ function setupEventListeners() {
         });
     });
 
-    // 채팅으로 돌아가기
-    const backToChatBtn = document.getElementById('backToChatBtn');
-    if (backToChatBtn) {
-        backToChatBtn.addEventListener('click', () => {
-            console.log('=== 채팅으로 돌아가기 ===');
-            
-            // 현재 sessionStorage에 히스토리가 있는지 확인
-            const currentHistory = sessionStorage.getItem('conversationHistory');
-            if (currentHistory) {
-                console.log(`✓ 히스토리 확인: ${currentHistory.length} bytes 저장됨`);
-                try {
-                    const parsed = JSON.parse(currentHistory);
-                    console.log(`  히스토리 개수: ${parsed.length}개 메시지`);
-                } catch (e) {
-                    console.error('  히스토리 파싱 실패:', e);
-                }
-            } else {
-                console.warn('⚠ sessionStorage에 히스토리가 없습니다!');
-            }
-            
-            // 페이지 이동
-            console.log('채팅 페이지로 이동');
-            window.location.href = 'index.html';
-        });
-    }
-    
     // 페이지 로드 시 히스토리 확인
     window.addEventListener('load', () => {
         const currentHistory = sessionStorage.getItem('conversationHistory');
@@ -900,5 +903,69 @@ function showNoDataMessage() {
     
     if (noDataMessage) noDataMessage.style.display = 'block';
     if (vizContent) vizContent.style.display = 'none';
+}
+
+// =====================
+// 대화 기록 (서버 API 기반 - 클릭 시 채팅 페이지로 이동)
+// =====================
+
+async function renderChatHistory() {
+    const list = document.getElementById('chatHistoryList');
+    if (!list) return;
+
+    try {
+        const res = await fetch('/api/history');
+        const history = res.ok ? await res.json() : [];
+
+        if (history.length === 0) {
+            list.innerHTML = '<div class="history-empty">저장된 대화가 없습니다</div>';
+            return;
+        }
+        list.innerHTML = history.map(item => `
+            <div class="history-item" data-id="${item.id}">
+                <div class="history-item-body" onclick="goToHistoryConversation('${item.id}')">
+                    <div class="history-item-title">${escapeHtml(item.title)}</div>
+                    <div class="history-item-time">${item.timestamp}</div>
+                </div>
+                <button class="history-item-delete" onclick="deleteHistoryItem('${item.id}')" title="삭제">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+    } catch {
+        list.innerHTML = '';
+    }
+}
+
+async function goToHistoryConversation(id) {
+    try {
+        const res = await fetch('/api/history');
+        const history = res.ok ? await res.json() : [];
+        const item = history.find(h => h.id === id);
+        if (item) {
+            sessionStorage.setItem('conversationHistory', item.messages);
+            sessionStorage.setItem('currentHistoryId', id);
+            if (item.visualization_data) {
+                sessionStorage.setItem('visualizationData', item.visualization_data);
+            } else {
+                sessionStorage.removeItem('visualizationData');
+            }
+        }
+    } catch (e) {}
+    window.location.href = 'index.html';
+}
+
+async function deleteHistoryItem(id) {
+    try {
+        await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    } catch (e) {}
+    await renderChatHistory();
+}
+
+function escapeHtml(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 

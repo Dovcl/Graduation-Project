@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>환경 데이터 RAG 챗봇 - 서울시립대학교</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <div class="app-container">
@@ -46,6 +49,14 @@
                     </svg>
                     <span class="sidebar-btn-text">게시판</span>
                 </button>
+
+                <!-- 대화 기록 구분선 -->
+                <div class="history-divider">
+                    <span class="history-divider-label">대화 기록</span>
+                </div>
+
+                <!-- 대화 기록 목록 -->
+                <div class="chat-history-list" id="chatHistoryList"></div>
             </div>
         </aside>
 
@@ -115,7 +126,7 @@
     <!-- 스크립트 -->
     <script src="config.js"></script>
     <script src="api/client.js"></script>
-    <script src="script.js"></script>
+    <script src="script.js?v=5"></script>
 </body>
 </html>
 

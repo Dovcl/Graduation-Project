@@ -6,11 +6,12 @@ let currentSort = 'latest';
 let selectedPost = null;
 
 // 초기화
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('게시판 페이지 로드');
     setupSidebar();
     setupBoard();
     loadPosts();
+    await renderChatHistory();
 });
 
 // 사이드바 설정
@@ -506,4 +507,68 @@ async function handleDeletePost(postId) {
 // 전역 함수로 등록 (인라인 이벤트 핸들러용)
 window.handleAddComment = handleAddComment;
 window.handleDeletePost = handleDeletePost;
+
+// =====================
+// 대화 기록 (서버 API 기반 - 클릭 시 채팅 페이지로 이동)
+// =====================
+
+async function renderChatHistory() {
+    const list = document.getElementById('chatHistoryList');
+    if (!list) return;
+
+    try {
+        const res = await fetch('/api/history');
+        const history = res.ok ? await res.json() : [];
+
+        if (history.length === 0) {
+            list.innerHTML = '<div class="history-empty">저장된 대화가 없습니다</div>';
+            return;
+        }
+        list.innerHTML = history.map(item => `
+            <div class="history-item" data-id="${item.id}">
+                <div class="history-item-body" onclick="goToHistoryConversation('${item.id}')">
+                    <div class="history-item-title">${escapeHtml(item.title)}</div>
+                    <div class="history-item-time">${item.timestamp}</div>
+                </div>
+                <button class="history-item-delete" onclick="deleteHistoryItem('${item.id}')" title="삭제">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+    } catch {
+        list.innerHTML = '';
+    }
+}
+
+async function goToHistoryConversation(id) {
+    try {
+        const res = await fetch('/api/history');
+        const history = res.ok ? await res.json() : [];
+        const item = history.find(h => h.id === id);
+        if (item) {
+            sessionStorage.setItem('conversationHistory', item.messages);
+            sessionStorage.setItem('currentHistoryId', id);
+            if (item.visualization_data) {
+                sessionStorage.setItem('visualizationData', item.visualization_data);
+            } else {
+                sessionStorage.removeItem('visualizationData');
+            }
+        }
+    } catch (e) {}
+    window.location.href = 'index.html';
+}
+
+async function deleteHistoryItem(id) {
+    try {
+        await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    } catch (e) {}
+    await renderChatHistory();
+}
+
+function escapeHtml(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 

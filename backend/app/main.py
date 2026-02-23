@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.core.config import settings
-from app.api import chat, visualization, board
+from app.api import chat, visualization, board, history
 from app.database import init_db
 
 # FastAPI 앱 생성
@@ -51,6 +51,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(visualization.router, prefix="/api", tags=["visualization"])
 app.include_router(board.router, prefix="/api", tags=["board"])
+app.include_router(history.router, prefix="/api", tags=["history"])
 
 # 정적 파일 서빙 (프론트엔드)
 frontend_path = Path(__file__).parent.parent.parent / "frontend"
