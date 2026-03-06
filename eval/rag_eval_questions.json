@@ -1,0 +1,12 @@
+[
+  {
+    "question": "녹조 대응 1단계는 무엇인가요?",
+    "ground_truth_chunk_indices": [0],
+    "note": "예시: 실제로 chunk_reference.json 보고 맞는 인덱스로 수정"
+  },
+  {
+    "question": "유해남조류 세포수 주의 기준이 얼마인가요?",
+    "ground_truth_chunk_indices": [1],
+    "note": "수치 기준이 나온 청크 인덱스로 수정"
+  }
+]

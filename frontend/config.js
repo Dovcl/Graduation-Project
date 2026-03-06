@@ -10,8 +10,8 @@ const CONFIG = {
         
         // ngrok URL인 경우 (ngrok-free.app 또는 ngrok.io 도메인)
         if (host.includes('ngrok-free.app') || host.includes('ngrok.io') || host.includes('ngrok.dev')) {
-            // ngrok은 HTTPS를 사용하므로 같은 호스트의 포트 8000 사용
-            return `${protocol}//${host}:8000`;
+            // ngrok은 443으로 접속하므로 같은 호스트만 사용 (포트 없음)
+            return `${protocol}//${host}`;
         }
         
         // 로컬 개발 환경
